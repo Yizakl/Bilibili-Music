@@ -16,26 +16,27 @@ import 'dart:async';
 Future<void> main() async {
   // 确保Flutter绑定初始化
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   // 初始化后台播放
   await JustAudioBackground.init(
     androidNotificationChannelId: 'com.bilibili.music.channel.audio',
     androidNotificationChannelName: 'Bilibili Music',
-    androidNotificationOngoing: true,
+    androidNotificationOngoing: false,
     androidShowNotificationBadge: true,
-    androidStopForegroundOnPause: true,
+    androidNotificationIcon: 'mipmap/ic_launcher',
+    androidStopForegroundOnPause: false,
     fastForwardInterval: const Duration(seconds: 10),
     rewindInterval: const Duration(seconds: 10),
     notificationColor: const Color(0xFF2196F3), // 蓝色
   );
-  
+
   // 初始化WebView平台
   if (WebViewPlatform.instance is AndroidWebViewPlatform) {
     AndroidWebViewPlatform.registerWith();
   } else if (WebViewPlatform.instance is WebKitWebViewPlatform) {
     WebKitWebViewPlatform.registerWith();
   }
-  
+
   // 初始化SharedPreferences
   SharedPreferences prefs;
   try {
@@ -44,7 +45,7 @@ Future<void> main() async {
     debugPrint('初始化SharedPreferences失败: $e');
     prefs = await _createMockPrefs();
   }
-  
+
   // 运行应用，如果 prefs 为空，创建一个模拟实现
   runApp(BilibiliMusicApp(
     prefs: prefs,

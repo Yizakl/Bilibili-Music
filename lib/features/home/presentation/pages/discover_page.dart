@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/services/bilibili_service.dart';
-import '../../../player/models/audio_item.dart';
+import '../../../../core/models/video_item.dart';
 import '../../../player/presentation/pages/player_page.dart';
+import '../../../player/models/audio_item.dart' as player_models;
+import 'package:go_router/go_router.dart';
 
 class DiscoverPage extends StatefulWidget {
   const DiscoverPage({super.key});
@@ -12,9 +14,10 @@ class DiscoverPage extends StatefulWidget {
 }
 
 class _DiscoverPageState extends State<DiscoverPage> {
+  final List<String> _categories = ['推荐', '音乐', '舞蹈', '游戏', '知识', '生活', '美食', '动画'];
   String _selectedCategory = '推荐';
-  bool _isLoading = false;
-  List<AudioItem> _videos = [];
+  List<VideoItem> _videos = [];
+  bool _isLoading = true;
   String? _error;
 
   @override
@@ -24,8 +27,6 @@ class _DiscoverPageState extends State<DiscoverPage> {
   }
 
   Future<void> _loadVideos() async {
-    if (_isLoading) return;
-
     setState(() {
       _isLoading = true;
       _error = null;
@@ -33,7 +34,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
 
     try {
       final bilibiliService = Provider.of<BilibiliService>(context, listen: false);
-      List<AudioItem> videos;
+      List<VideoItem> videos;
 
       // 根据选择的分类加载不同的视频
       if (_selectedCategory == '推荐') {
@@ -105,22 +106,22 @@ class _DiscoverPageState extends State<DiscoverPage> {
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16),
               children: [
-                '推荐', '音乐', '舞蹈', '游戏', '知识', '生活', '美食', '动画'
-              ].map((label) => Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: FilterChip(
-                  label: Text(label),
-                  selected: label == _selectedCategory,
-                  onSelected: (selected) {
-                    if (selected) {
-                      setState(() {
-                        _selectedCategory = label;
-                      });
-                      _loadVideos();
-                    }
-                  },
-                ),
-              )).toList(),
+                ..._categories.map((label) => Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: FilterChip(
+                    label: Text(label),
+                    selected: label == _selectedCategory,
+                    onSelected: (selected) {
+                      if (selected) {
+                        setState(() {
+                          _selectedCategory = label;
+                        });
+                        _loadVideos();
+                      }
+                    },
+                  ),
+                )),
+              ],
             ),
           ),
         ),
@@ -306,8 +307,9 @@ class VideoCard extends StatelessWidget {
         ),
       );
       
-      // 获取音频URL
       final bilibiliService = Provider.of<BilibiliService>(context, listen: false);
+      
+      // 获取音频URL
       final audioUrl = await bilibiliService.getAudioUrl(videoId);
       
       // 关闭加载对话框
@@ -315,40 +317,34 @@ class VideoCard extends StatelessWidget {
         Navigator.pop(context);
       }
       
-      // 创建音频项
-      final audioItem = AudioItem(
+      if (audioUrl.isEmpty) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('无法获取音频URL')),
+          );
+        }
+        return;
+      }
+      
+      // 创建AudioItem
+      final audioItem = player_models.AudioItem(
         id: videoId,
         title: title,
         uploader: uploader,
         thumbnail: thumbnail,
         audioUrl: audioUrl,
         addedTime: DateTime.now(),
-        isFavorite: false,
-        isDownloaded: false,
       );
       
-      // 打开播放器页面
       if (context.mounted) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => PlayerPage(audioItem: audioItem),
-          ),
-        );
+        context.push('/player', extra: {'audio_item': audioItem});
       }
     } catch (e) {
       // 关闭加载对话框
       if (context.mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('获取音频失败: $e'),
-            duration: const Duration(seconds: 5),
-            action: SnackBarAction(
-              label: '重试',
-              onPressed: () => _openVideoPlayer(context),
-            ),
-          ),
+          SnackBar(content: Text('播放失败: $e')),
         );
       }
     }

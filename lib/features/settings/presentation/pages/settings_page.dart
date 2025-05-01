@@ -5,9 +5,10 @@ import '../../../../core/services/bilibili_service.dart';
 import '../../../../core/models/user_model.dart';
 import 'login_page.dart';
 import 'browser_login_page.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class SettingsPage extends StatefulWidget {
-  const SettingsPage({Key? key}) : super(key: key);
+  const SettingsPage({super.key});
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -21,7 +22,7 @@ class _SettingsPageState extends State<SettingsPage> {
   String _audioQuality = '标准';
   int _maxCacheSize = 1024; // MB
   bool _backgroundPlay = true;
-  UserModel? _user;
+  Map<String, dynamic>? _user;
 
   @override
   void initState() {
@@ -41,9 +42,9 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _loadUserInfo() async {
     final bilibiliService = Provider.of<BilibiliService>(context, listen: false);
-    final user = await bilibiliService.getUserInfo();
+    final userData = await bilibiliService.getUserInfo();
     setState(() {
-      _user = user;
+      _user = userData;
     });
   }
 
@@ -187,9 +188,9 @@ class _SettingsPageState extends State<SettingsPage> {
     
     if (result) {
       final bilibiliService = Provider.of<BilibiliService>(context, listen: false);
-      final user = await bilibiliService.getUserInfo();
+      final userData = await bilibiliService.getUserInfo();
       setState(() {
-        _user = user;
+        _user = userData;
       });
       
       if (mounted) {
@@ -224,14 +225,11 @@ class _SettingsPageState extends State<SettingsPage> {
     if (result == true) {
       await bilibiliService.logout();
       setState(() {
-        _user = UserModel(
-          mid: 0, 
-          uid: null,
-          username: null,
-          avatar: null,
-          isLoggedIn: false,
-          isVip: false,
-        );
+        _user = {
+          'isLogin': false,
+          'username': '',
+          'avatar': '',
+        };
       });
       
       if (mounted) {
@@ -319,34 +317,41 @@ class _SettingsPageState extends State<SettingsPage> {
 
   // 用户信息卡
   Widget _buildUserInfoCard() {
-    if (_user != null && _user!.isLoggedIn) {
-      return Card(
-        margin: const EdgeInsets.symmetric(horizontal: 16),
-        child: ListTile(
-          leading: CircleAvatar(
-            backgroundImage: NetworkImage(_user!.avatar ?? 'https://i0.hdslb.com/bfs/face/member/noface.jpg'),
+    final isLoggedIn = _user != null && _user!['isLogin'] == true;
+    
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: CircleAvatar(
+              backgroundImage: isLoggedIn && _user!['avatar'] != null && _user!['avatar'].isNotEmpty 
+                ? NetworkImage(_user!['avatar'])
+                : null,
+              child: isLoggedIn ? null : const Icon(Icons.person),
+            ),
+            title: Text(
+              isLoggedIn ? _user!['username'] : '未登录', 
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: Text(
+              isLoggedIn ? (_user!['isVip'] ? 'VIP用户' : '普通用户') : '登录以使用更多功能',
+            ),
+            trailing: isLoggedIn ? const Icon(Icons.check_circle, color: Colors.green) : null,
           ),
-          title: Text(_user!.username ?? '未知用户'),
-          subtitle: Text('UID: ${_user!.uid ?? '未知'}'),
-          trailing: TextButton(
-            onPressed: _handleLogout,
-            child: const Text('退出登录'),
+          ButtonBar(
+            alignment: MainAxisAlignment.center,
+            children: [
+              ElevatedButton.icon(
+                icon: Icon(isLoggedIn ? Icons.logout : Icons.login),
+                label: Text(isLoggedIn ? '退出登录' : '登录'),
+                onPressed: isLoggedIn ? _handleLogout : _handleLogin,
+              ),
+            ],
           ),
-        ),
-      );
-    } else {
-      return Card(
-        margin: const EdgeInsets.symmetric(horizontal: 16),
-        child: ListTile(
-          leading: const Icon(Icons.account_circle, size: 40),
-          title: const Text('登录账号'),
-          subtitle: const Text('登录后可以同步收藏和历史记录'),
-          trailing: ElevatedButton(
-            onPressed: _handleLogin,
-            child: const Text('登录'),
-          ),
-        ),
-      );
-    }
+        ],
+      ),
+    );
   }
 } 

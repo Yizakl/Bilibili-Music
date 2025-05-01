@@ -6,6 +6,10 @@ import '../../models/audio_item.dart';
 import '../../../../core/services/bilibili_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:audio_service/audio_service.dart';
+import '../../../../core/services/audio_player_manager.dart';
+import '../widgets/audio_visualizer.dart';
+import '../widgets/wave_visualizer.dart';
+import '../widgets/real_audio_visualizer.dart';
 
 class PlayerPage extends StatefulWidget {
   final AudioItem audioItem;
@@ -16,7 +20,8 @@ class PlayerPage extends StatefulWidget {
   State<PlayerPage> createState() => _PlayerPageState();
 }
 
-class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateMixin {
+class _PlayerPageState extends State<PlayerPage>
+    with SingleTickerProviderStateMixin {
   final AudioPlayer _audioPlayer = AudioPlayer();
   bool _isPlaying = false;
   Duration _duration = Duration.zero;
@@ -28,7 +33,9 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
   bool _isRepeat = false;
   bool _showLyrics = false;
   late AnimationController _playPauseController;
-  
+  late AudioPlayerManager _audioPlayerManager;
+  int _visualizerType = 0; // 0: 波形, 1: 柱状图, 2: 实时频谱
+
   final List<String> _mockLyrics = [
     "[00:01.00]这是歌词示例",
     "[00:05.00]实际歌词将从服务器获取",
@@ -38,7 +45,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     "[00:25.00]实际开发中可对接相应API",
     "[00:30.00]感谢您的使用与支持",
   ];
-  
+
   // 音量控制
   double _volume = 1.0;
   bool _showVolumeSlider = false;
@@ -51,10 +58,55 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       vsync: this,
       duration: const Duration(milliseconds: 300),
     );
-    
+
     // 初始化当前音频项
     _currentAudioItem = widget.audioItem;
+
+    // 更新全局播放管理器
+    _audioPlayerManager =
+        Provider.of<AudioPlayerManager>(context, listen: false);
+    _audioPlayerManager.currentAudioNotifier.value = _currentAudioItem;
+
     _initAudioPlayer();
+
+    // 播放当前音频
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _playAudio();
+    });
+
+    // 设置监听器
+    _setupListeners();
+  }
+
+  void _setupListeners() {
+    // 监听播放状态变化
+    _audioPlayerManager.player.playingStream.listen((playing) {
+      if (mounted) {
+        setState(() {
+          _isPlaying = playing;
+          // 强制刷新可视化效果
+          _refreshVisualizer();
+        });
+      }
+    });
+
+    // 监听播放位置变化
+    _audioPlayerManager.player.positionStream.listen((position) {
+      if (mounted) {
+        setState(() {
+          _position = position;
+        });
+      }
+    });
+
+    // 监听音频总时长变化
+    _audioPlayerManager.player.durationStream.listen((duration) {
+      if (mounted && duration != null) {
+        setState(() {
+          _duration = duration;
+        });
+      }
+    });
   }
 
   Future<void> _initAudioPlayer() async {
@@ -63,7 +115,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       if (mounted) {
         setState(() {
           _isPlaying = state.playing;
-          
+
           // 处理播放错误
           if (state.processingState == ProcessingState.completed) {
             _audioPlayer.seek(Duration.zero);
@@ -71,7 +123,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
             _playPauseController.reverse();
           }
         });
-        
+
         // 控制动画
         if (state.playing) {
           _playPauseController.forward();
@@ -120,36 +172,58 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
 
   Future<void> _loadAndPlayAudio() async {
     if (!mounted) return;
-    
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
-    
+
     try {
       // 使用 mir6 API 丰富音频信息
-      if (_currentAudioItem.audioUrl.isEmpty) {
+      if (_currentAudioItem.audioUrl.isEmpty ||
+          _currentAudioItem.thumbnail.isEmpty) {
         try {
-          final bilibiliService = Provider.of<BilibiliService>(context, listen: false);
+          final bilibiliService =
+              Provider.of<BilibiliService>(context, listen: false);
+
+          // 先获取视频详情以获取完整信息
+          final videoDetail =
+              await bilibiliService.getVideoDetail(_currentAudioItem.id);
+          if (videoDetail != null) {
+            // 使用视频详情更新封面和标题
+            setState(() {
+              _currentAudioItem = _currentAudioItem.copyWith(
+                thumbnail: videoDetail.thumbnail,
+                title: videoDetail.title,
+                uploader: videoDetail.uploader,
+              );
+            });
+            debugPrint('成功获取视频详情: ${videoDetail.title}');
+          }
 
           // 尝试先丰富音频信息
-          final enrichedAudio = await bilibiliService.enrichVideoWithMir6Api(_currentAudioItem);
+          final enrichedAudio =
+              await bilibiliService.enrichVideoWithMir6Api(_currentAudioItem);
           if (enrichedAudio != null && enrichedAudio.audioUrl.isNotEmpty) {
             if (mounted) {
               setState(() {
                 _currentAudioItem = enrichedAudio;
               });
-              debugPrint('成功丰富音频信息并获取URL: ${enrichedAudio.audioUrl.length > 50 ? enrichedAudio.audioUrl.substring(0, 50) + "..." : enrichedAudio.audioUrl}');
+              debugPrint(
+                  '成功丰富音频信息并获取URL: ${enrichedAudio.audioUrl.length > 50 ? enrichedAudio.audioUrl.substring(0, 50) + "..." : enrichedAudio.audioUrl}');
             }
           } else {
             // 如果丰富信息失败，直接获取音频URL
             debugPrint('丰富音频信息失败，尝试直接获取URL');
-            final audioUrl = await bilibiliService.getAudioUrl(_currentAudioItem.id);
+            final audioUrl =
+                await bilibiliService.getAudioUrl(_currentAudioItem.id);
             if (mounted && audioUrl.isNotEmpty) {
               setState(() {
-                _currentAudioItem = _currentAudioItem.copyWith(audioUrl: audioUrl);
+                _currentAudioItem =
+                    _currentAudioItem.copyWith(audioUrl: audioUrl);
               });
-              debugPrint('成功获取音频URL: ${audioUrl.length > 50 ? audioUrl.substring(0, 50) + "..." : audioUrl}');
+              debugPrint(
+                  '成功获取音频URL: ${audioUrl.length > 50 ? audioUrl.substring(0, 50) + "..." : audioUrl}');
             }
           }
         } catch (e) {
@@ -163,23 +237,26 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
           }
         }
       }
-      
+
       debugPrint('尝试播放音频: ${_currentAudioItem.audioUrl}');
-      
+      debugPrint('封面: ${_currentAudioItem.thumbnail}');
+      debugPrint('标题: ${_currentAudioItem.title}');
+
       if (_currentAudioItem.audioUrl.isEmpty) {
         throw Exception('音频URL为空');
       }
-      
+
       // 设置用户代理和引用页
       final headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Referer': 'https://www.bilibili.com/video/${_currentAudioItem.id}',
         'Origin': 'https://www.bilibili.com',
         'Accept': '*/*',
         'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
         'Range': 'bytes=0-', // 支持断点续传
       };
-      
+
       // 尝试播放音频
       try {
         // 创建MediaItem用于后台播放
@@ -190,7 +267,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
           artUri: Uri.parse(_currentAudioItem.thumbnail),
           extras: {'url': _currentAudioItem.audioUrl},
         );
-        
+
         // 检查URL是否是mir6 API的MP4流
         if (_currentAudioItem.audioUrl.contains('api.mir6.com')) {
           // 对于mir6 API的MP4流，不需要设置headers
@@ -210,25 +287,28 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
             ),
           );
         }
-        
+
         // 设置音量
         await _audioPlayer.setVolume(_volume);
-        
+
         // 播放音频
         await _audioPlayer.play();
-        
+
         debugPrint('音频开始播放');
-        
+
         setState(() {
           _isLoading = false;
         });
+
+        // 更新全局播放管理器
+        _audioPlayerManager.currentAudioNotifier.value = _currentAudioItem;
       } catch (e) {
         debugPrint('播放失败: $e');
         setState(() {
           _errorMessage = '无法播放音频，请检查网络连接';
           _isLoading = false;
         });
-        
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('播放失败: $e'),
@@ -242,7 +322,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       }
     } catch (e) {
       debugPrint('音频播放错误: $e');
-      
+
       if (mounted) {
         setState(() {
           _errorMessage = '加载音频失败，请重试';
@@ -299,7 +379,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     setState(() {
       _isRepeat = !_isRepeat;
     });
-    
+
     if (_isRepeat) {
       _audioPlayer.setLoopMode(LoopMode.one);
     } else {
@@ -327,36 +407,99 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     _audioPlayer.setVolume(value);
   }
 
+  Future<void> _playAudio() async {
+    await _audioPlayerManager.playAudio(widget.audioItem);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
       body: Container(
+        width: double.infinity,
+        height: double.infinity,
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Colors.blueGrey.shade900,
-              Colors.blueGrey.shade800,
-              Colors.blueGrey.shade700,
+              Colors.black.withOpacity(0.6),
+              Colors.black.withOpacity(0.9),
             ],
           ),
         ),
         child: SafeArea(
           child: Column(
             children: [
-              // 顶部导航栏
-              _buildAppBar(),
-              
+              // 顶部控制栏
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16.0,
+                  vertical: 8.0,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.keyboard_arrow_down),
+                      color: Colors.white,
+                      onPressed: () {
+                        Navigator.pop(context);
+                      },
+                    ),
+                    Text(
+                      '正在播放',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        // 添加可视化效果切换按钮
+                        IconButton(
+                          icon: Icon(
+                            _visualizerType == 0
+                                ? Icons.waves
+                                : (_visualizerType == 1
+                                    ? Icons.bar_chart
+                                    : Icons.equalizer),
+                            color: Colors.white,
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _visualizerType = (_visualizerType + 1) % 3;
+                            });
+                          },
+                          tooltip: '切换可视化效果',
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            _showLyrics ? Icons.lyrics_outlined : Icons.lyrics,
+                            color: Colors.white,
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _showLyrics = !_showLyrics;
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
               // 主体内容
               Expanded(
-                child: _isLoading 
-                  ? _buildLoadingView()
-                  : _errorMessage != null 
-                    ? _buildErrorView() 
-                    : _buildPlayerContent(),
+                child: _isLoading
+                    ? _buildLoadingView()
+                    : _errorMessage != null
+                        ? _buildErrorView()
+                        : _buildPlayerContent(),
               ),
-              
+
               // 底部控制栏
               _buildControlBar(),
             ],
@@ -365,34 +508,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       ),
     );
   }
-  
-  Widget _buildAppBar() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          IconButton(
-            icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white),
-            onPressed: () => Navigator.pop(context),
-          ),
-          Text(
-            '正在播放',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.9),
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.more_vert, color: Colors.white),
-            onPressed: _showMoreOptions,
-          ),
-        ],
-      ),
-    );
-  }
-  
+
   Widget _buildLoadingView() {
     return Center(
       child: Column(
@@ -413,7 +529,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       ),
     );
   }
-  
+
   Widget _buildErrorView() {
     return Center(
       child: Padding(
@@ -440,7 +556,8 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.white,
                 foregroundColor: Colors.blueGrey.shade900,
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
               ),
               icon: const Icon(Icons.refresh),
               label: const Text('重试'),
@@ -451,11 +568,11 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       ),
     );
   }
-  
+
   Widget _buildPlayerContent() {
     return _showLyrics ? _buildLyricsView() : _buildAlbumView();
   }
-  
+
   Widget _buildAlbumView() {
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
@@ -488,7 +605,8 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                       color: Colors.grey.shade800,
                       child: const Center(
                         child: CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white54),
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(Colors.white54),
                         ),
                       ),
                     ),
@@ -505,9 +623,9 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                 ),
               ),
             ),
-            
+
             const SizedBox(height: 40),
-            
+
             // 视频标题
             Text(
               _currentAudioItem.title,
@@ -520,9 +638,9 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
-            
+
             const SizedBox(height: 10),
-            
+
             // UP主
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -558,9 +676,33 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                 ],
               ],
             ),
-            
+
             const SizedBox(height: 50),
-            
+
+            // 可视化效果
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: _visualizerType == 0
+                  ? WaveVisualizer(
+                      isPlaying: _isPlaying,
+                      color: Theme.of(context).colorScheme.primary,
+                      height: 100,
+                    )
+                  : _visualizerType == 1
+                      ? AudioVisualizer(
+                          audioPlayer: _audioPlayerManager.player,
+                          color: Theme.of(context).colorScheme.primary,
+                          backgroundColor:
+                              Theme.of(context).colorScheme.surfaceVariant,
+                        )
+                      : RealAudioVisualizer(
+                          audioPlayer: _audioPlayerManager.player,
+                          color: Theme.of(context).colorScheme.primary,
+                          backgroundColor:
+                              Theme.of(context).colorScheme.surfaceVariant,
+                        ),
+            ),
+
             // 额外控制按钮
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -604,26 +746,30 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       ),
     );
   }
-  
+
   Widget _buildLyricsView() {
     // 模拟歌词滚动视图，实际应用中应当解析LRC文件或从API获取歌词
-    final int currentLyricIndex = (_position.inSeconds ~/ 5) % _mockLyrics.length;
-    
+    final int currentLyricIndex =
+        (_position.inSeconds ~/ 5) % _mockLyrics.length;
+
     return ListView.builder(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
       itemCount: _mockLyrics.length,
       itemBuilder: (context, index) {
         final bool isCurrentLyric = index == currentLyricIndex;
-        
+
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 12),
           child: Center(
             child: Text(
               _mockLyrics[index].substring(_mockLyrics[index].indexOf(']') + 1),
               style: TextStyle(
-                color: isCurrentLyric ? Colors.white : Colors.white.withOpacity(0.5),
+                color: isCurrentLyric
+                    ? Colors.white
+                    : Colors.white.withOpacity(0.5),
                 fontSize: isCurrentLyric ? 18 : 16,
-                fontWeight: isCurrentLyric ? FontWeight.bold : FontWeight.normal,
+                fontWeight:
+                    isCurrentLyric ? FontWeight.bold : FontWeight.normal,
               ),
               textAlign: TextAlign.center,
             ),
@@ -632,7 +778,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       },
     );
   }
-  
+
   Widget _buildControlBar() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -659,13 +805,15 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
             child: Slider(
               min: 0,
               max: _duration.inSeconds.toDouble(),
-              value: _position.inSeconds.toDouble().clamp(0, _duration.inSeconds.toDouble()),
+              value: _position.inSeconds
+                  .toDouble()
+                  .clamp(0, _duration.inSeconds.toDouble()),
               onChanged: (value) {
                 _audioPlayer.seek(Duration(seconds: value.toInt()));
               },
             ),
           ),
-          
+
           // 时间显示
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -689,9 +837,9 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
               ],
             ),
           ),
-          
+
           const SizedBox(height: 10),
-          
+
           // 音量控制
           if (_showVolumeSlider) ...[
             Row(
@@ -703,7 +851,8 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                       activeTrackColor: Colors.white70,
                       inactiveTrackColor: Colors.white30,
                       thumbColor: Colors.white,
-                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                      thumbShape:
+                          const RoundSliderThumbShape(enabledThumbRadius: 6),
                       trackHeight: 2,
                     ),
                     child: Slider(
@@ -719,21 +868,11 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
             ),
             const SizedBox(height: 10),
           ],
-          
+
           // 播放控制
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              // 切换歌词/封面
-              IconButton(
-                icon: Icon(
-                  _showLyrics ? Icons.album : Icons.lyrics,
-                  color: Colors.white,
-                  size: 26,
-                ),
-                onPressed: _toggleLyrics,
-              ),
-              
               // 上一曲
               IconButton(
                 icon: const Icon(
@@ -748,7 +887,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                   );
                 },
               ),
-              
+
               // 播放/暂停
               GestureDetector(
                 onTap: _togglePlayPause,
@@ -776,7 +915,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                   ),
                 ),
               ),
-              
+
               // 下一曲
               IconButton(
                 icon: const Icon(
@@ -791,11 +930,13 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                   );
                 },
               ),
-              
+
               // 音量控制
               IconButton(
                 icon: Icon(
-                  _showVolumeSlider ? Icons.volume_up : Icons.volume_up_outlined,
+                  _showVolumeSlider
+                      ? Icons.volume_up
+                      : Icons.volume_up_outlined,
                   color: Colors.white,
                   size: 26,
                 ),
@@ -811,7 +952,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       ),
     );
   }
-  
+
   Widget _buildControlButton({
     required IconData icon,
     required String tooltip,
@@ -830,7 +971,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       ),
     );
   }
-  
+
   void _showMoreOptions() {
     showModalBottomSheet(
       context: context,
@@ -868,7 +1009,8 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
               },
             ),
             ListTile(
-              leading: const Icon(Icons.report_problem_outlined, color: Colors.white70),
+              leading: const Icon(Icons.report_problem_outlined,
+                  color: Colors.white70),
               title: const Text('报告问题', style: TextStyle(color: Colors.white)),
               onTap: () {
                 Navigator.pop(context);
@@ -880,4 +1022,25 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       ),
     );
   }
-} 
+
+  // 添加刷新可视化效果的方法
+  void _refreshVisualizer() {
+    // 临时切换可视化效果类型来触发重建
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        setState(() {
+          _visualizerType = (_visualizerType + 1) % 3;
+        });
+
+        // 再切换回来
+        Future.delayed(const Duration(milliseconds: 50), () {
+          if (mounted) {
+            setState(() {
+              _visualizerType = (_visualizerType + 2) % 3;
+            });
+          }
+        });
+      }
+    });
+  }
+}
