@@ -126,6 +126,16 @@ jobs:
         with:
           name: android-build
           path: build/app/outputs/flutter-apk/app-release.apk
+      
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: |
+            build/app/outputs/flutter-apk/*.apk
+            build/windows/**/*.exe
+            build/linux/**/*
+          retention-days: 5
 
   create-release:
     needs: [build-windows, build-ios, build-android]
@@ -175,4 +185,4 @@ jobs:
             artifacts/ios/bilibili_music_ios.ipa
             artifacts/android/app-release.apk
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
