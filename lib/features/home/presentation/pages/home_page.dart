@@ -1,3 +1,4 @@
+import 'package:bilibili_music/core/models/category.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -28,15 +29,15 @@ class _HomePageState extends State<HomePage>
   late Future<List<VideoItem>> _popularVideosFuture;
   final TextEditingController _searchController = TextEditingController();
 
-  final List<Map<String, dynamic>> _categories = [
-    {'id': 1, 'name': '音乐', 'icon': Icons.music_note},
-    {'id': 3, 'name': '娱乐', 'icon': Icons.movie},
-    {'id': 4, 'name': '游戏', 'icon': Icons.sports_esports},
-    {'id': 5, 'name': '动画', 'icon': Icons.animation},
-    {'id': 119, 'name': '鬼畜', 'icon': Icons.emoji_emotions},
-    {'id': 160, 'name': '生活', 'icon': Icons.restaurant},
-    {'id': 181, 'name': '影视', 'icon': Icons.video_library},
-    {'id': 188, 'name': '科技', 'icon': Icons.science},
+  final List<Category> _categories = [
+    Category(id: 1, name: '音乐', icon: Icons.music_note),
+    Category(id: 3, name: '娱乐', icon: Icons.movie),
+    Category(id: 4, name: '游戏', icon: Icons.sports_esports),
+    Category(id: 5, name: '动画', icon: Icons.animation),
+    Category(id: 119, name: '鬼畜', icon: Icons.emoji_emotions),
+    Category(id: 160, name: '生活', icon: Icons.restaurant),
+    Category(id: 181, name: '影视', icon: Icons.video_library),
+    Category(id: 188, name: '科技', icon: Icons.science),
   ];
 
   int _selectedCategoryId = 1; // 默认选择音乐分区
@@ -121,10 +122,34 @@ class _HomePageState extends State<HomePage>
   @override
   Widget build(BuildContext context) {
     final audioPlayerManager = Provider.of<AudioPlayerManager>(context);
+    final theme = Theme.of(context);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Bilibili Music'),
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Image.asset(
+              'assets/icons/logo.svg',
+              width: 24,
+              height: 24,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'Bilibili Music',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: theme.colorScheme.primary,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () => context.push('/settings'),
+          ),
+        ],
       ),
       body: PageView(
         controller: _pageController,
@@ -140,22 +165,49 @@ class _HomePageState extends State<HomePage>
               // 搜索栏
               Padding(
                 padding: const EdgeInsets.all(16.0),
-                child: TextField(
-                  decoration: InputDecoration(
-                    hintText: '输入BV号或视频链接',
-                    prefixIcon: const Icon(Icons.search),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
+                child: GestureDetector(
+                  onTap: _navigateToSearch,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surface,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.search,
+                          color: theme.colorScheme.onSurface.withOpacity(0.6),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          '搜索视频或输入BV号',
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: theme.colorScheme.onSurface.withOpacity(0.6),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  onSubmitted: (value) {
-                    // 处理搜索逻辑
-                    if (value.isNotEmpty) {
-                      _navigateToSearch();
-                    }
-                  },
                 ),
               ),
+
+              // 分类选择器
+              CategorySelector(
+                categories: _categories,
+                selectedCategoryId: _selectedCategoryId,
+                onCategorySelected: _onCategorySelected,
+              ),
+
+              const SizedBox(height: 16),
 
               // 历史记录列表
               Expanded(
@@ -164,12 +216,33 @@ class _HomePageState extends State<HomePage>
                       Provider.of<BilibiliService>(context).getPlayHistory()),
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
+                      return Center(
+                        child: CircularProgressIndicator(
+                          color: theme.colorScheme.primary,
+                        ),
+                      );
                     }
 
                     if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                      return const Center(
-                        child: Text('暂无播放历史'),
+                      return Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.history,
+                              size: 64,
+                              color: theme.colorScheme.primary.withOpacity(0.5),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              '暂无播放历史',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                color: theme.colorScheme.onBackground
+                                    .withOpacity(0.6),
+                              ),
+                            ),
+                          ],
+                        ),
                       );
                     }
 

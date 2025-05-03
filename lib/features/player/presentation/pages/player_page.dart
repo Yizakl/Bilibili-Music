@@ -22,10 +22,6 @@ class PlayerPage extends StatefulWidget {
 
 class _PlayerPageState extends State<PlayerPage>
     with SingleTickerProviderStateMixin {
-  final AudioPlayer _audioPlayer = AudioPlayer();
-  bool _isPlaying = false;
-  Duration _duration = Duration.zero;
-  Duration _position = Duration.zero;
   String? _errorMessage;
   bool _isLoading = true;
   late AudioItem _currentAudioItem;
@@ -35,6 +31,9 @@ class _PlayerPageState extends State<PlayerPage>
   late AnimationController _playPauseController;
   late AudioPlayerManager _audioPlayerManager;
   int _visualizerType = 0; // 0: 波形, 1: 柱状图, 2: 实时频谱
+  bool _isPlaying = false;
+  Duration _duration = Duration.zero;
+  Duration _position = Duration.zero;
 
   final List<String> _mockLyrics = [
     "[00:01.00]这是歌词示例",
@@ -84,8 +83,6 @@ class _PlayerPageState extends State<PlayerPage>
       if (mounted) {
         setState(() {
           _isPlaying = playing;
-          // 强制刷新可视化效果
-          _refreshVisualizer();
         });
       }
     });
@@ -107,65 +104,18 @@ class _PlayerPageState extends State<PlayerPage>
         });
       }
     });
+
+    // 监听当前音频变化
+    _audioPlayerManager.currentAudioNotifier.addListener(() {
+      if (mounted && _audioPlayerManager.currentAudioNotifier.value != null) {
+        setState(() {
+          _currentAudioItem = _audioPlayerManager.currentAudioNotifier.value!;
+        });
+      }
+    });
   }
 
   Future<void> _initAudioPlayer() async {
-    // 监听播放状态
-    _audioPlayer.playerStateStream.listen((state) {
-      if (mounted) {
-        setState(() {
-          _isPlaying = state.playing;
-
-          // 处理播放错误
-          if (state.processingState == ProcessingState.completed) {
-            _audioPlayer.seek(Duration.zero);
-            _audioPlayer.pause();
-            _playPauseController.reverse();
-          }
-        });
-
-        // 控制动画
-        if (state.playing) {
-          _playPauseController.forward();
-        } else {
-          _playPauseController.reverse();
-        }
-      }
-    });
-
-    // 监听播放进度
-    _audioPlayer.positionStream.listen((position) {
-      if (mounted) {
-        setState(() {
-          _position = position;
-        });
-      }
-    });
-
-    // 监听音频总时长
-    _audioPlayer.durationStream.listen((duration) {
-      if (duration != null && mounted) {
-        setState(() {
-          _duration = duration;
-        });
-      }
-    });
-
-    // 监听错误
-    _audioPlayer.playbackEventStream.listen(
-      (event) {},
-      onError: (Object e, StackTrace st) {
-        debugPrint('播放器错误: $e');
-        debugPrint('错误堆栈: $st');
-        if (mounted) {
-          setState(() {
-            _errorMessage = '播放错误: $e';
-            _isLoading = false;
-          });
-        }
-      },
-    );
-
     // 设置音频源
     await _loadAndPlayAudio();
   }
@@ -238,70 +188,16 @@ class _PlayerPageState extends State<PlayerPage>
         }
       }
 
-      debugPrint('尝试播放音频: ${_currentAudioItem.audioUrl}');
-      debugPrint('封面: ${_currentAudioItem.thumbnail}');
-      debugPrint('标题: ${_currentAudioItem.title}');
-
       if (_currentAudioItem.audioUrl.isEmpty) {
         throw Exception('音频URL为空');
       }
 
-      // 设置用户代理和引用页
-      final headers = {
-        'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Referer': 'https://www.bilibili.com/video/${_currentAudioItem.id}',
-        'Origin': 'https://www.bilibili.com',
-        'Accept': '*/*',
-        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-        'Range': 'bytes=0-', // 支持断点续传
-      };
-
-      // 尝试播放音频
+      // 使用全局播放管理器播放音频
       try {
-        // 创建MediaItem用于后台播放
-        final mediaItem = MediaItem(
-          id: _currentAudioItem.id,
-          title: _currentAudioItem.title,
-          artist: _currentAudioItem.uploader,
-          artUri: Uri.parse(_currentAudioItem.thumbnail),
-          extras: {'url': _currentAudioItem.audioUrl},
-        );
-
-        // 检查URL是否是mir6 API的MP4流
-        if (_currentAudioItem.audioUrl.contains('api.mir6.com')) {
-          // 对于mir6 API的MP4流，不需要设置headers
-          await _audioPlayer.setAudioSource(
-            AudioSource.uri(
-              Uri.parse(_currentAudioItem.audioUrl),
-              tag: mediaItem,
-            ),
-          );
-        } else {
-          // 对于其他来源，设置headers
-          await _audioPlayer.setAudioSource(
-            AudioSource.uri(
-              Uri.parse(_currentAudioItem.audioUrl),
-              tag: mediaItem,
-              headers: headers,
-            ),
-          );
-        }
-
-        // 设置音量
-        await _audioPlayer.setVolume(_volume);
-
-        // 播放音频
-        await _audioPlayer.play();
-
-        debugPrint('音频开始播放');
-
+        await _audioPlayerManager.playAudio(_currentAudioItem);
         setState(() {
           _isLoading = false;
         });
-
-        // 更新全局播放管理器
-        _audioPlayerManager.currentAudioNotifier.value = _currentAudioItem;
       } catch (e) {
         debugPrint('播放失败: $e');
         setState(() {
@@ -321,7 +217,7 @@ class _PlayerPageState extends State<PlayerPage>
         );
       }
     } catch (e) {
-      debugPrint('音频播放错误: $e');
+      debugPrint('音频加载错误: $e');
 
       if (mounted) {
         setState(() {
@@ -344,7 +240,7 @@ class _PlayerPageState extends State<PlayerPage>
 
   @override
   void dispose() {
-    _audioPlayer.dispose();
+    // 不再在这里dispose音频播放器，让它继续在后台播放
     _playPauseController.dispose();
     super.dispose();
   }
@@ -369,9 +265,9 @@ class _PlayerPageState extends State<PlayerPage>
 
   void _togglePlayPause() {
     if (_isPlaying) {
-      _audioPlayer.pause();
+      _audioPlayerManager.pause();
     } else {
-      _audioPlayer.play();
+      _audioPlayerManager.playAudio(_currentAudioItem);
     }
   }
 
@@ -381,9 +277,9 @@ class _PlayerPageState extends State<PlayerPage>
     });
 
     if (_isRepeat) {
-      _audioPlayer.setLoopMode(LoopMode.one);
+      _audioPlayerManager.player.setLoopMode(LoopMode.one);
     } else {
-      _audioPlayer.setLoopMode(LoopMode.off);
+      _audioPlayerManager.player.setLoopMode(LoopMode.off);
     }
   }
 
@@ -404,7 +300,7 @@ class _PlayerPageState extends State<PlayerPage>
     setState(() {
       _volume = value;
     });
-    _audioPlayer.setVolume(value);
+    _audioPlayerManager.player.setVolume(value);
   }
 
   Future<void> _playAudio() async {
@@ -445,6 +341,7 @@ class _PlayerPageState extends State<PlayerPage>
                       icon: const Icon(Icons.keyboard_arrow_down),
                       color: Colors.white,
                       onPressed: () {
+                        // 只关闭播放器页面，不停止播放
                         Navigator.pop(context);
                       },
                     ),
@@ -809,7 +706,8 @@ class _PlayerPageState extends State<PlayerPage>
                   .toDouble()
                   .clamp(0, _duration.inSeconds.toDouble()),
               onChanged: (value) {
-                _audioPlayer.seek(Duration(seconds: value.toInt()));
+                _audioPlayerManager.player
+                    .seek(Duration(seconds: value.toInt()));
               },
             ),
           ),

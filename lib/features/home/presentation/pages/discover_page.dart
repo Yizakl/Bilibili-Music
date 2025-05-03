@@ -68,13 +68,19 @@ class _DiscoverPageState extends State<DiscoverPage> {
 
   @override
   Widget build(BuildContext context) {
-    return CustomScrollView(
-      slivers: [
+    return RefreshIndicator(
+      onRefresh: _loadVideos,
+      child: CustomScrollView(
+        slivers: [
         // 顶部 AppBar
         SliverAppBar(
           floating: true,
           title: const Text('发现'),
           actions: [
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: _loadVideos,
+            ),
             IconButton(
               icon: const Icon(Icons.person_outline),
               onPressed: () {
@@ -183,7 +189,8 @@ class _DiscoverPageState extends State<DiscoverPage> {
               ),
             ),
           ),
-      ],
+        ], // <-- This closing bracket was missing
+      ), // <-- This closing parenthesis was missing
     );
   }
 }
@@ -349,4 +356,4 @@ class VideoCard extends StatelessWidget {
       }
     }
   }
-} 
+}

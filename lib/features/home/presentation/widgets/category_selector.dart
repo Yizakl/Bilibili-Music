@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import '../../../../core/models/category.dart';
 
 class CategorySelector extends StatelessWidget {
-  final List<Map<String, dynamic>> categories;
+  final List<Category> categories;
   final int selectedCategoryId;
   final Function(int) onCategorySelected;
 
@@ -15,7 +16,7 @@ class CategorySelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 60,
+      height: 56,
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
@@ -23,36 +24,46 @@ class CategorySelector extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 8),
         itemBuilder: (context, index) {
           final category = categories[index];
-          final isSelected = category['id'] == selectedCategoryId;
+          final isSelected = category.id == selectedCategoryId;
           
           return Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: ChoiceChip(
-              label: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    category['icon'],
-                    size: 16,
-                    color: isSelected ? Colors.white : Theme.of(context).colorScheme.primary,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(category['name']),
-                ],
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              child: ChoiceChip(
+                label: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      category.icon,
+                      size: 18,
+                      color: isSelected ? Colors.white : Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      category.name,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                  ],
+                ),
+                selected: isSelected,
+                onSelected: (_) => onCategorySelected(category.id),
+                backgroundColor: Theme.of(context).colorScheme.surfaceVariant,
+                selectedColor: Theme.of(context).colorScheme.primary,
+                labelStyle: TextStyle(
+                  color: isSelected ? Colors.white : Theme.of(context).colorScheme.onSurface,
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                elevation: isSelected ? 2 : 0,
+                pressElevation: 4,
               ),
-              selected: isSelected,
-              onSelected: (_) => onCategorySelected(category['id']),
-              backgroundColor: Theme.of(context).colorScheme.surface,
-              selectedColor: Theme.of(context).colorScheme.primary,
-              labelStyle: TextStyle(
-                color: isSelected ? Colors.white : Theme.of(context).colorScheme.onSurface,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             ),
           );
         },
       ),
     );
   }
-} 
+}

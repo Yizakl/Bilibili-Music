@@ -4,6 +4,20 @@ class AppTheme {
   // 主色调
   static const Color primaryColor = Color(0xFF00A1D6); // B站蓝
   static const Color accentColor = Color(0xFFFB7299); // B站粉
+  static const Color tertiaryColor = Color(0xFF18B288); // 第三色
+
+  // 动画配置
+  static const Duration animationFast = Duration(milliseconds: 200);
+  static const Duration animationNormal = Duration(milliseconds: 300);
+  static const Duration animationSlow = Duration(milliseconds: 500);
+
+  // 动画曲线
+  static const Curve animationCurve = Curves.easeInOutCubic;
+
+  // 交互状态颜色
+  static const Color hoverColor = Color(0x0A000000);
+  static const Color splashColor = Color(0x1A000000);
+  static const Color highlightColor = Color(0x14000000);
 
   // 私有构造函数，防止实例化
   AppTheme._();
@@ -13,6 +27,9 @@ class AppTheme {
     useMaterial3: true,
     brightness: Brightness.light,
     primaryColor: primaryColor,
+    splashColor: splashColor,
+    highlightColor: highlightColor,
+    hoverColor: hoverColor,
     colorScheme: ColorScheme.light(
       primary: primaryColor,
       secondary: accentColor,
@@ -28,8 +45,16 @@ class AppTheme {
     scaffoldBackgroundColor: const Color(0xFFF4F4F4),
     cardTheme: CardTheme(
       color: Colors.white,
-      elevation: 2,
+      elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shadowColor: Colors.black.withOpacity(0.05),
+    ),
+    pageTransitionsTheme: const PageTransitionsTheme(
+      builders: {
+        TargetPlatform.windows: CupertinoPageTransitionsBuilder(),
+        TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+        TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+      },
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
@@ -308,4 +333,4 @@ class AppTheme {
       ),
     ),
   );
-} 
+}

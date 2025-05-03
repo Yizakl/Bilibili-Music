@@ -16,11 +16,14 @@ class BilibiliService {
   static const String _cookieKey = 'bilibili_cookies';
   static const String _csrfKey = 'bilibili_csrf';
 
-  // 添加新接口URI常量
-  static const String _mir6ApiBaseUrl = 'https://api.mir6.com/api/bzjiexi';
-
   // API地址
   static const String _apiBaseUrl = 'https://api.bilibili.com';
+  static const String _passportApiUrl = 'https://passport.bilibili.com';
+  static const String _loginApiUrl =
+      'https://passport.bilibili.com/x/passport-login/web';
+
+  // 添加新接口URI常量
+  static const String _mir6ApiBaseUrl = 'https://api.mir6.com/api/bzjiexi';
 
   // 历史记录键
   static const String _searchHistoryKey = 'search_history';
