@@ -1,5 +1,7 @@
 import 'package:intl/intl.dart';
 import '../../features/player/models/audio_item.dart' as player_models;
+import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 class VideoItem {
   final String id; // BV号或AV号
@@ -28,7 +30,7 @@ class VideoItem {
     required this.id,
     required this.title,
     required this.uploader,
-    required this.uploaderId,
+    this.uploaderId = '',
     required this.thumbnail,
     required this.duration,
     required this.playCount,
@@ -48,6 +50,22 @@ class VideoItem {
     this.isAd = false,
   });
 
+  // 获取修复后的缩略图URL
+  String get fixedThumbnail {
+    if (thumbnail.isEmpty) {
+      return 'https://via.placeholder.com/150';
+    }
+    // 处理无scheme的URL
+    if (thumbnail.startsWith('//')) {
+      return 'https:$thumbnail';
+    }
+    // 处理file:///开头的URL (不支持的scheme)
+    if (thumbnail.startsWith('file:///')) {
+      return 'https://via.placeholder.com/150';
+    }
+    return thumbnail;
+  }
+
   // 工厂构造函数，从JSON构建
   factory VideoItem.fromJson(Map<String, dynamic> json) {
     try {
@@ -55,7 +73,8 @@ class VideoItem {
       DateTime? publishTime;
       if (json['pubdate'] != null) {
         try {
-          publishTime = DateTime.fromMillisecondsSinceEpoch(json['pubdate'] * 1000);
+          publishTime =
+              DateTime.fromMillisecondsSinceEpoch(json['pubdate'] * 1000);
         } catch (e) {
           // 忽略解析错误
         }
@@ -76,7 +95,8 @@ class VideoItem {
           final int seconds = json['duration'];
           final int minutes = seconds ~/ 60;
           final int remainingSeconds = seconds % 60;
-          videoDuration = '${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
+          videoDuration =
+              '${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
         } else {
           videoDuration = json['duration'].toString();
         }
@@ -93,11 +113,12 @@ class VideoItem {
       return VideoItem(
         id: videoId,
         title: json['title'] ?? '未知标题',
-        uploader: json['owner']?['name'] ?? json['author'] ?? '未知UP主',
-        uploaderId: json['owner']?['mid']?.toString() ?? json['mid']?.toString() ?? '',
-        thumbnail: json['pic'] ?? json['cover'] ?? '',
+        uploader:
+            json['author'] ?? json['uploader'] ?? json['owner']?['name'] ?? '',
+        uploaderId: json['mid'] ?? json['owner']?['mid']?.toString() ?? '',
+        thumbnail: json['pic'] ?? json['thumbnail'] ?? json['cover'] ?? '',
         description: json['desc'] ?? json['introduction'] ?? '',
-        playCount: json['play'] ?? json['stat']?['view'] ?? 0,
+        playCount: int.tryParse(json['play']?.toString() ?? '0') ?? 0,
         likeCount: json['like'] ?? json['stat']?['like'],
         coinCount: json['coin'] ?? json['stat']?['coin'],
         favoriteCount: json['favorite'] ?? json['stat']?['favorite'],
@@ -111,19 +132,21 @@ class VideoItem {
         audioUrl: json['url'] ?? '',
         isLive: json['live'] == 1,
         isAd: json['isad'] == 1,
-        publishDate: _formatDate(json['pubdate'] ?? 0),
+        publishDate: json['pubdate']?.toString() ?? json['publishDate'] ?? '',
       );
     } catch (e) {
       // 解析失败时返回基本数据
       return VideoItem(
         id: json['bvid'] ?? json['aid']?.toString() ?? '未知ID',
         title: json['title'] ?? '未知标题',
-        uploader: json['owner']?['name'] ?? json['author'] ?? '未知UP主',
-        uploaderId: json['owner']?['mid']?.toString() ?? json['mid']?.toString() ?? '',
-        thumbnail: json['pic'] ?? json['cover'] ?? '',
-        duration: json['duration']?.toString() ?? '00:00',
-        playCount: json['stat']?['view'] ?? 0,
-        publishDate: _formatDate(json['pubdate'] ?? 0),
+        uploader:
+            json['author'] ?? json['uploader'] ?? json['owner']?['name'] ?? '',
+        uploaderId: json['mid'] ?? json['owner']?['mid']?.toString() ?? '',
+        thumbnail: json['pic'] ?? json['thumbnail'] ?? json['cover'] ?? '',
+        duration: _formatDuration(
+            int.tryParse(json['duration']?.toString() ?? '0') ?? 0),
+        playCount: int.tryParse(json['play']?.toString() ?? '0') ?? 0,
+        publishDate: json['pubdate']?.toString() ?? json['publishDate'] ?? '',
       );
     }
   }
@@ -229,59 +252,14 @@ class VideoItem {
     final duration = Duration(seconds: seconds);
     final minutes = duration.inMinutes;
     final remainingSeconds = duration.inSeconds % 60;
-    
+
     return '$minutes:${remainingSeconds.toString().padLeft(2, '0')}';
   }
 
   static String _formatDate(int timestamp) {
     if (timestamp == 0) return '';
-    
+
     final dateTime = DateTime.fromMillisecondsSinceEpoch(timestamp * 1000);
     return DateFormat('yyyy-MM-dd').format(dateTime);
   }
 }
-
-// 音频项类，与VideoItem相关联
-class AudioItem {
-  final String id; // 与视频ID相同
-  final String title; // 标题
-  final String artist; // UP主
-  final String artUri; // 封面图
-  final String duration; // 时长
-  
-  const AudioItem({
-    required this.id,
-    required this.title,
-    required this.artist,
-    required this.artUri,
-    required this.duration,
-  });
-  
-  // 复制方法
-  AudioItem copyWith({
-    String? id,
-    String? title,
-    String? artist,
-    String? artUri,
-    String? duration,
-  }) {
-    return AudioItem(
-      id: id ?? this.id,
-      title: title ?? this.title,
-      artist: artist ?? this.artist,
-      artUri: artUri ?? this.artUri,
-      duration: duration ?? this.duration,
-    );
-  }
-  
-  // 转换为JSON
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'title': title,
-      'artist': artist,
-      'artUri': artUri,
-      'duration': duration,
-    };
-  }
-} 

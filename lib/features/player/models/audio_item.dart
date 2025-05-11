@@ -21,6 +21,25 @@ class AudioItem {
     this.playCount,
   });
 
+  // 获取修复后的缩略图URL
+  String get fixedThumbnail {
+    if (thumbnail.isEmpty) {
+      return 'https://via.placeholder.com/150';
+    }
+
+    // 处理无scheme的URL
+    if (thumbnail.startsWith('//')) {
+      return 'https:$thumbnail';
+    }
+
+    // 处理file:///开头的URL (不支持的scheme)
+    if (thumbnail.startsWith('file:///')) {
+      return thumbnail.replaceFirst('file://', 'https:');
+    }
+
+    return thumbnail;
+  }
+
   AudioItem copyWith({
     String? id,
     String? title,
@@ -72,4 +91,4 @@ class AudioItem {
       playCount: json['playCount'] as int?,
     );
   }
-} 
+}

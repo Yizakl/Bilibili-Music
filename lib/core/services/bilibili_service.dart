@@ -2,391 +2,177 @@ import 'package:dio/dio.dart';
 import '../../features/player/models/audio_item.dart' as player_models;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:math';
-import '../models/user_model.dart';
 import 'package:flutter/foundation.dart';
 import 'package:crypto/crypto.dart';
 import 'dart:convert';
 import 'dart:math' as math;
 import '../models/video_item.dart';
+import 'package:intl/intl.dart';
+import 'dart:async';
+import 'package:logging/logging.dart';
 
 class BilibiliService {
   final Dio _dio;
-  final SharedPreferences _prefs;
-  final Random _random = Random();
-  static const String _cookieKey = 'bilibili_cookies';
-  static const String _csrfKey = 'bilibili_csrf';
+  final _logger = Logger('BilibiliService');
+  final _apiBaseUrl = 'https://api.bilibili.com';
+  late SharedPreferences _prefs;
 
   // API地址
-  static const String _apiBaseUrl = 'https://api.bilibili.com';
-  static const String _passportApiUrl = 'https://passport.bilibili.com';
-  static const String _loginApiUrl =
-      'https://passport.bilibili.com/x/passport-login/web';
-
-  // 添加新接口URI常量
   static const String _mir6ApiBaseUrl = 'https://api.mir6.com/api/bzjiexi';
 
-  // 历史记录键
-  static const String _searchHistoryKey = 'search_history';
+  // 本地存储键
   static const String _playHistoryKey = 'play_history';
   static const String _favoriteKey = 'favorites';
+  static const String _searchHistoryKey = 'search_history';
+  static const String _csrfKey = 'bili_csrf';
+  static const String _cookieKey = 'bili_cookie';
 
-  BilibiliService(this._prefs) : _dio = Dio() {
+  // Cookie相关常量
+  static const String _sessdataKey = 'sessdata';
+  static const String _biliJctKey = 'bili_jct';
+  static const String _dedeUserIDKey = 'dede_user_id';
+  static const String _userNameKey = 'user_name';
+  static const String _userAvatarKey = 'user_avatar';
+
+  BilibiliService() : _dio = Dio() {
+    _dio.options.connectTimeout = const Duration(seconds: 15);
+    _dio.options.receiveTimeout = const Duration(seconds: 15);
     _initDio();
+    _initPrefs();
+  }
+
+  Future<void> _initPrefs() async {
+    _prefs = await SharedPreferences.getInstance();
+    _loadCookies();
+  }
+
+  void _loadCookies() {
+    final sessdata = _prefs.getString(_sessdataKey);
+    final biliJct = _prefs.getString(_biliJctKey);
+    final dedeUserID = _prefs.getString(_dedeUserIDKey);
+
+    if (sessdata != null && biliJct != null && dedeUserID != null) {
+      _dio.options.headers['Cookie'] =
+          'SESSDATA=$sessdata; bili_jct=$biliJct; DedeUserID=$dedeUserID';
+    }
+  }
+
+  Future<void> saveCookies({
+    required String sessdata,
+    required String biliJct,
+    required String dedeUserID,
+    String? userName,
+    String? userAvatar,
+  }) async {
+    await _prefs.setString(_sessdataKey, sessdata);
+    await _prefs.setString(_biliJctKey, biliJct);
+    await _prefs.setString(_dedeUserIDKey, dedeUserID);
+    if (userName != null) {
+      await _prefs.setString(_userNameKey, userName);
+    }
+    if (userAvatar != null) {
+      await _prefs.setString(_userAvatarKey, userAvatar);
+    }
+    _dio.options.headers['Cookie'] =
+        'SESSDATA=$sessdata; bili_jct=$biliJct; DedeUserID=$dedeUserID';
+  }
+
+  Future<void> clearCookies() async {
+    await _prefs.remove(_sessdataKey);
+    await _prefs.remove(_biliJctKey);
+    await _prefs.remove(_dedeUserIDKey);
+    await _prefs.remove(_userNameKey);
+    await _prefs.remove(_userAvatarKey);
+    _dio.options.headers.remove('Cookie');
+  }
+
+  Future<Map<String, String?>> getSavedCookies() async {
+    return {
+      'sessdata': _prefs.getString(_sessdataKey),
+      'bili_jct': _prefs.getString(_biliJctKey),
+      'dede_user_id': _prefs.getString(_dedeUserIDKey),
+      'user_name': _prefs.getString(_userNameKey),
+      'user_avatar': _prefs.getString(_userAvatarKey),
+    };
+  }
+
+  Future<bool> isLoggedIn() async {
+    final cookies = await getSavedCookies();
+    return cookies['sessdata'] != null &&
+        cookies['bili_jct'] != null &&
+        cookies['dede_user_id'] != null;
   }
 
   void _initDio() {
-    _dio.options.baseUrl = 'https://api.bilibili.com';
-    _dio.options.connectTimeout = const Duration(seconds: 15);
-    _dio.options.receiveTimeout = const Duration(seconds: 15);
+    _dio.options.baseUrl = _apiBaseUrl;
     _dio.options.headers = {
       'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
       'Referer': 'https://www.bilibili.com',
       'Accept': 'application/json, text/plain, */*',
       'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-      'Accept-Encoding': 'gzip, deflate, br',
       'Origin': 'https://www.bilibili.com',
-      'Sec-Ch-Ua':
-          '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
-      'Sec-Ch-Ua-Mobile': '?0',
-      'Sec-Ch-Ua-Platform': '"Windows"',
-      'Sec-Fetch-Site': 'same-site',
-      'Sec-Fetch-Mode': 'cors',
-      'Sec-Fetch-Dest': 'empty',
     };
 
-    // 添加拦截器用于日志记录
+    // 添加日志拦截器
     if (kDebugMode) {
-      _dio.interceptors.add(LogInterceptor(
-        request: true,
-        requestHeader: true,
-        requestBody: true,
-        responseHeader: true,
-        responseBody: true,
-        error: true,
-        logPrint: (object) => debugPrint(object.toString()),
-      ));
+      _dio.interceptors.add(
+        LogInterceptor(
+          request: true,
+          requestHeader: true,
+          requestBody: true,
+          responseHeader: true,
+          responseBody: true,
+          error: true,
+          logPrint: (object) => debugPrint('BilibiliService: $object'),
+        ),
+      );
     }
 
     // 添加错误处理拦截器
-    _dio.interceptors.add(InterceptorsWrapper(
-      onRequest: (options, handler) {
-        // 为每个请求添加随机数，避免缓存
-        options.queryParameters['t'] = DateTime.now().millisecondsSinceEpoch;
-        return handler.next(options);
-      },
-      onError: (DioException e, ErrorInterceptorHandler handler) async {
-        debugPrint('API错误: ${e.message}');
-        debugPrint('请求: ${e.requestOptions.uri}');
-        debugPrint('数据: ${e.requestOptions.data}');
-
-        // 如果是412错误，尝试刷新Cookie
-        if (e.response?.statusCode == 412) {
-          debugPrint('遇到412错误，尝试刷新Cookie');
-          try {
-            // 获取新的Cookie
-            final response = await Dio().get(
-              'https://www.bilibili.com',
-              options: Options(
-                headers: {
-                  'User-Agent':
-                      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-                },
-                followRedirects: false,
-                validateStatus: (status) => true,
-              ),
-            );
-
-            final cookies = response.headers['set-cookie'];
-            if (cookies != null && cookies.isNotEmpty) {
-              final cookieString = cookies.join('; ');
-              await _prefs.setString(_cookieKey, cookieString);
-              _dio.options.headers['Cookie'] = cookieString;
-
-              // 重试原始请求
-              final retryResponse = await _dio.fetch(e.requestOptions);
-              return handler.resolve(retryResponse);
-            }
-          } catch (retryError) {
-            debugPrint('刷新Cookie失败: $retryError');
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          options.queryParameters['t'] = DateTime.now().millisecondsSinceEpoch;
+          return handler.next(options);
+        },
+        onError: (DioException e, ErrorInterceptorHandler handler) async {
+          debugPrint('BilibiliService请求错误: ${e.message}');
+          debugPrint('请求URL: ${e.requestOptions.uri}');
+          if (e.response != null) {
+            debugPrint('响应状态码: ${e.response?.statusCode}');
+            debugPrint('响应数据: ${e.response?.data}');
           }
-        }
-        return handler.next(e);
-      },
-    ));
-
-    // 恢复存储的 Cookie
-    final cookies = _prefs.getString(_cookieKey);
-    if (cookies != null) {
-      _dio.options.headers['Cookie'] = cookies;
-    }
-  }
-
-  // 登录方法
-  Future<bool> login(String username, String password) async {
-    try {
-      debugPrint('尝试登录，用户名: $username');
-
-      // 获取公钥和盐值
-      try {
-        final keyResponse = await _dio.get(
-          'https://passport.bilibili.com/x/passport-login/web/key',
-          options: Options(
-            headers: {
-              'User-Agent':
-                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-              'Referer': 'https://www.bilibili.com',
-              'Origin': 'https://www.bilibili.com',
-              'Accept': 'application/json, text/plain, */*',
-              'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-              'Accept-Encoding': 'gzip, deflate, br',
-              'Connection': 'keep-alive',
-            },
-            validateStatus: (status) => status! < 500,
-          ),
-        );
-
-        if (keyResponse.statusCode != 200) {
-          debugPrint('获取公钥失败：HTTP ${keyResponse.statusCode}');
-          throw Exception('获取公钥失败：HTTP ${keyResponse.statusCode}');
-        }
-
-        if (keyResponse.data == null) {
-          debugPrint('获取公钥失败：响应为空');
-          throw Exception('获取公钥失败：响应为空');
-        }
-
-        if (keyResponse.data['code'] != 0) {
-          debugPrint('获取公钥失败：${keyResponse.data['message']}');
-          throw Exception('获取公钥失败：${keyResponse.data['message']}');
-        }
-
-        final publicKey = keyResponse.data['data']['key'];
-        final hash = keyResponse.data['data']['hash'];
-
-        debugPrint('获取到公钥和哈希值');
-
-        // 由于加密逻辑复杂，这里简化处理
-        // 在实际应用中应该正确实现RSA加密
-        final encryptedPassword = _encodePassword(password, hash);
-
-        debugPrint('密码加密完成');
-
-        // 执行登录
-        try {
-          final loginResponse = await _dio.post(
-            'https://passport.bilibili.com/x/passport-login/web/login',
-            data: {
-              'username': username,
-              'password': encryptedPassword,
-              'keep': true,
-              'source': 'main_web',
-              'go_url': 'https://www.bilibili.com',
-            },
-            options: Options(
-              headers: {
-                'User-Agent':
-                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                'Referer': 'https://passport.bilibili.com/login',
-                'Origin': 'https://passport.bilibili.com',
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Accept': 'application/json, text/plain, */*',
-                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive',
-              },
-              validateStatus: (status) => status! < 500,
-            ),
-          );
-
-          if (loginResponse.statusCode != 200) {
-            debugPrint('登录请求失败：HTTP ${loginResponse.statusCode}');
-            throw Exception('登录请求失败：HTTP ${loginResponse.statusCode}');
-          }
-
-          if (loginResponse.data == null) {
-            debugPrint('登录请求失败：响应为空');
-            throw Exception('登录请求失败：响应为空');
-          }
-
-          debugPrint('登录请求结果: ${loginResponse.data['code']}');
-
-          if (loginResponse.data['code'] == 0) {
-            // 保存 Cookie
-            final cookies = loginResponse.headers['set-cookie'];
-            if (cookies != null) {
-              final cookieString = cookies.join('; ');
-              await _prefs.setString(_cookieKey, cookieString);
-              _dio.options.headers['Cookie'] = cookieString;
-
-              // 提取并保存 CSRF Token
-              final csrfToken = _extractCsrfToken(cookieString);
-              if (csrfToken != null) {
-                await _prefs.setString(_csrfKey, csrfToken);
-              }
-
-              // 获取用户信息
-              try {
-                final userResponse = await _dio.get(
-                  'https://api.bilibili.com/x/web-interface/nav',
-                  options: Options(
-                    headers: {
-                      'User-Agent':
-                          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                      'Referer': 'https://www.bilibili.com',
-                      'Cookie': cookieString,
-                      'Accept': 'application/json, text/plain, */*',
-                      'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                      'Accept-Encoding': 'gzip, deflate, br',
-                      'Connection': 'keep-alive',
-                    },
-                    validateStatus: (status) => status! < 500,
-                  ),
-                );
-
-                if (userResponse.statusCode != 200) {
-                  debugPrint('获取用户信息失败：HTTP ${userResponse.statusCode}');
-                  return false;
-                }
-
-                if (userResponse.data == null) {
-                  debugPrint('获取用户信息失败：响应为空');
-                  return false;
-                }
-
-                if (userResponse.data['code'] == 0) {
-                  final userData = userResponse.data['data'];
-                  final user = UserModel(
-                    mid: userData['mid'] is int
-                        ? userData['mid']
-                        : int.parse(userData['mid'].toString()),
-                    uid: userData['mid'].toString(),
-                    username: userData['uname'],
-                    avatar: userData['face'],
-                    isLoggedIn: true,
-                    isVip: userData['vipStatus'] == 1,
-                  );
-
-                  await user.saveToPrefs(_prefs);
-                  return true;
-                }
-              } catch (e) {
-                debugPrint('获取用户信息失败: $e');
-                return false;
-              }
-
-              return true;
-            }
-          }
-
-          if (loginResponse.data['code'] == -105) {
-            debugPrint('需要验证码');
-            throw Exception('需要验证码，请使用浏览器登录');
-          } else if (loginResponse.data['code'] == -629) {
-            debugPrint('账号或密码错误');
-            throw Exception('账号或密码错误');
-          } else {
-            debugPrint('登录失败: ${loginResponse.data['message']}');
-            throw Exception(loginResponse.data['message'] ?? '登录失败');
-          }
-        } catch (e) {
-          debugPrint('登录请求失败: $e');
-          throw e;
-        }
-      } catch (e) {
-        debugPrint('获取公钥失败: $e');
-        throw e;
-      }
-    } catch (e) {
-      debugPrint('登录失败: $e');
-      throw e;
-    }
-
-    return false;
-  }
-
-  // 用于密码加密的辅助方法
-  String _encodePassword(String password, String hash) {
-    try {
-      // 这里进行密码加密
-      // 在实际实现中，需要使用RSA加密，这里简化处理
-      // 实际上需要使用哈希和公钥进行加密
-      return Uri.encodeComponent(password);
-    } catch (e) {
-      debugPrint('密码加密失败: $e');
-      return password;
-    }
-  }
-
-  // 提取 CSRF Token
-  String? _extractCsrfToken(String cookies) {
-    final regex = RegExp(r'bili_jct=([^;]+)');
-    final match = regex.firstMatch(cookies);
-    return match?.group(1);
-  }
-
-  // 检查登录状态
-  Future<bool> checkLogin() async {
-    try {
-      final response = await _dio.get(
-        '$_apiBaseUrl/x/web-interface/nav',
-        options: Options(
-          headers: {
-            'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          },
-        ),
-      );
-
-      if (response.statusCode == 200) {
-        final data = response.data;
-
-        // 检查API返回的状态码
-        if (data != null && data['code'] == 0 && data['data'] != null) {
-          final isLogin = data['data']['isLogin'] == 1;
-
-          if (isLogin) {
-            debugPrint('用户已登录');
-
-            // 如果存在用户信息，可以保存到本地
-            if (data['data']['uname'] != null) {
-              await _prefs.setString('user_name', data['data']['uname']);
-            }
-
-            if (data['data']['mid'] != null) {
-              await _prefs.setString('user_id', data['data']['mid'].toString());
-            }
-
-            return true;
-          }
-        }
-      }
-
-      return false;
-    } catch (e) {
-      debugPrint('检查登录状态失败: $e');
-      return false;
-    }
-  }
-
-  // 退出登录
-  Future<bool> logout() async {
-    try {
-      // 清除cookies和用户信息
-      await _prefs.remove(_cookieKey);
-      await _prefs.remove(_csrfKey);
-      _dio.options.headers.remove('Cookie');
-
-      return true;
-    } catch (e) {
-      debugPrint('退出登录失败: $e');
-      return false;
-    }
+          return handler.next(e);
+        },
+      ),
+    );
   }
 
   // 搜索视频
   Future<List<VideoItem>> searchVideos(String keyword) async {
     try {
+      if (keyword.isEmpty) {
+        return [];
+      }
+
+      debugPrint('开始搜索视频: $keyword');
+
+      // 添加随机延迟，避免被频率限制
+      await Future.delayed(
+          Duration(milliseconds: 500 + Random().nextInt(1000)));
+
+      // 使用BV号或AV号直接获取视频
+      if (keyword.startsWith('BV') ||
+          keyword.startsWith('av') ||
+          keyword.startsWith('AV')) {
+        debugPrint('检测到BV/AV号，直接获取视频');
+        final videoItem = await getVideoDetail(keyword);
+        if (videoItem != null) {
+          return [videoItem];
+        }
+      }
+
       // 构建请求参数
       final Map<String, dynamic> params = {
         'keyword': keyword,
@@ -396,51 +182,177 @@ class BilibiliService {
         'platform': 'pc',
       };
 
-      // 发送请求
-      final response = await _dio.get(
-        '$_apiBaseUrl/x/web-interface/search/type',
+      // 为避免412错误，使用自定义Dio实例并设置较长超时和更多浏览器特征
+      final customDio = Dio(BaseOptions(
+        baseUrl: 'https://api.bilibili.com',
+        connectTimeout: const Duration(seconds: 30),
+        receiveTimeout: const Duration(seconds: 30),
+        headers: {
+          'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0',
+          'Referer':
+              'https://search.bilibili.com/all?keyword=${Uri.encodeComponent(keyword)}',
+          'Origin': 'https://search.bilibili.com',
+          'Accept': 'application/json, text/plain, */*',
+          'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+          'Sec-Ch-Ua':
+              '"Chromium";v="124", "Microsoft Edge";v="124", "Not-A.Brand";v="99"',
+          'Sec-Ch-Ua-Mobile': '?0',
+          'Sec-Ch-Ua-Platform': '"Windows"',
+          'Sec-Fetch-Dest': 'empty',
+          'Sec-Fetch-Mode': 'cors',
+          'Sec-Fetch-Site': 'same-site',
+          'Cookie':
+              'buvid3=${_generateRandomBuvid()}; i-wanna-go-back=-1; b_ut=7; b_nut=1683158400; LIVE_BUVID=AUTO1316831584006138; _uuid=${_generateRandomUuid()};',
+        },
+        validateStatus: (status) => true, // 允许任何状态码，便于调试
+      ));
+
+      if (kDebugMode) {
+        customDio.interceptors.add(LogInterceptor(
+          request: true,
+          requestHeader: true,
+          requestBody: true,
+          responseHeader: true,
+          responseBody: true,
+          error: true,
+          logPrint: (object) => debugPrint('搜索API: $object'),
+        ));
+      }
+
+      // 发送搜索请求
+      debugPrint('发送搜索请求');
+      final response = await customDio.get(
+        '/x/web-interface/search/type',
         queryParameters: params,
       );
 
       // 检查响应
       if (response.statusCode == 200) {
         final Map<String, dynamic> data = response.data;
+        debugPrint('搜索API响应状态码: ${response.statusCode}');
 
         // 检查API返回的状态码
         if (data['code'] == 0 && data['data'] != null) {
           final List<dynamic> items = data['data']['result'] ?? [];
+
+          debugPrint('搜索结果数量: ${items.length}');
 
           // 解析视频项
           final List<VideoItem> videos = [];
           for (var item in items) {
             try {
               // 转换为我们需要的格式
-              final Map<String, dynamic> convertedItem = {
+              final video = VideoItem.fromJson({
                 'bvid': item['bvid'],
-                'title': item['title'],
-                'author': item['author'],
-                'mid': item['mid'],
-                'pic': item['pic'],
-                'duration': item['duration'],
-                'play': item['play'],
-                'pubdate': item['pubdate'],
-              };
+                'title': _removeHtmlTags(item['title'] ?? '未知标题'),
+                'author': item['author'] ?? '未知UP主',
+                'mid': item['mid']?.toString() ?? '',
+                'pic': item['pic'] ?? '',
+                'duration': _formatSearchDuration(item['duration'] is int
+                    ? item['duration']
+                    : int.tryParse(item['duration']?.toString() ?? '0') ?? 0),
+                'play': int.tryParse(item['play']?.toString() ?? '0') ?? 0,
+                'pubdate': item['pubdate'] != null
+                    ? _formatDate(item['pubdate'] is int
+                        ? item['pubdate']
+                        : int.tryParse(item['pubdate'].toString()) ?? 0)
+                    : '',
+              });
 
-              final video = VideoItem.fromJson(convertedItem);
               videos.add(video);
             } catch (e) {
               debugPrint('解析搜索结果失败: $e');
             }
           }
 
+          // 添加到搜索历史
+          if (videos.isNotEmpty) {
+            _addToSearchHistory(keyword);
+          }
+
+          debugPrint('处理后的视频数量: ${videos.length}');
           return videos;
+        } else {
+          debugPrint('搜索API错误码: ${data['code']}, 消息: ${data['message']}');
+
+          // 如果被封禁(412)，尝试使用热门视频作为结果
+          if (data['code'] == -412) {
+            debugPrint('搜索请求被封禁，尝试获取热门视频');
+            return await getPopularVideos();
+          }
+        }
+      } else {
+        debugPrint('搜索请求失败，状态码: ${response.statusCode}');
+
+        // 如果是412错误，尝试使用热门视频作为结果
+        if (response.statusCode == 412) {
+          debugPrint('搜索请求被封禁，尝试获取热门视频');
+          return await getPopularVideos();
         }
       }
 
       return [];
+    } on DioException catch (e) {
+      debugPrint('搜索Dio异常: ${e.type}, ${e.message}');
+      if (e.response != null) {
+        debugPrint('响应状态码: ${e.response?.statusCode}');
+        debugPrint('响应数据: ${e.response?.data}');
+
+        // 如果是412错误，尝试使用热门视频作为结果
+        if (e.response?.statusCode == 412) {
+          debugPrint('搜索请求被封禁，尝试获取热门视频');
+          return await getPopularVideos();
+        }
+      }
+      return [];
     } catch (e) {
       debugPrint('搜索视频失败: $e');
       return [];
+    }
+  }
+
+  // 生成随机buvid
+  String _generateRandomBuvid() {
+    const chars =
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    final random = Random();
+    return List.generate(32, (index) => chars[random.nextInt(chars.length)])
+        .join();
+  }
+
+  // 生成随机uuid
+  String _generateRandomUuid() {
+    const chars =
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    final random = Random();
+    return List.generate(32, (index) => chars[random.nextInt(chars.length)])
+        .join();
+  }
+
+  // 辅助方法：移除HTML标签
+  String _removeHtmlTags(String text) {
+    return text.replaceAll(RegExp(r'<[^>]*>'), '');
+  }
+
+  // 辅助方法：格式化搜索结果的时长
+  String _formatSearchDuration(int seconds) {
+    final int minutes = seconds ~/ 60;
+    final int remainingSeconds = seconds % 60;
+    return '$minutes:${remainingSeconds.toString().padLeft(2, '0')}';
+  }
+
+  // 辅助方法：格式化播放量
+  String _formatPlayCount(String count) {
+    try {
+      final num numCount = num.parse(count.replaceAll(',', ''));
+      if (numCount >= 10000) {
+        return '${(numCount / 10000).toStringAsFixed(1)}万';
+      } else {
+        return count;
+      }
+    } catch (e) {
+      return count;
     }
   }
 
@@ -489,134 +401,211 @@ class BilibiliService {
     }
   }
 
-  // 获取视频音频URL
+  // 获取音频URL (优先使用解析API)
   Future<String> getAudioUrl(String videoId) async {
     try {
-      // 先尝试使用mir6 API
-      final mirAudioUrl = await getAudioUrlWithMir6Api(videoId);
-      if (mirAudioUrl.isNotEmpty) {
-        return mirAudioUrl;
+      if (videoId.isEmpty) {
+        debugPrint('视频ID为空，无法获取音频URL');
+        return '';
       }
 
-      // 如果mir6 API失败，使用原生API
-      return await _getAudioUrlWithNativeApi(videoId);
+      debugPrint('开始获取音频URL: $videoId (尝试多种API)');
+
+      // 尝试第一种解析API
+      final result1 = await getAudioUrlWithMir6Api(videoId);
+      if (result1 != null && result1.isNotEmpty) {
+        debugPrint('成功获取解析API音频URL (方式1)');
+        return result1;
+      }
+
+      // 尝试第二种解析API
+      String result2 = await getAudioUrlWithBackupApi(videoId);
+      if (result2.isNotEmpty) {
+        debugPrint('成功获取解析API音频URL (方式2)');
+        return result2;
+      }
+
+      // 如果解析API都失败，尝试使用官方API作为备选
+      debugPrint('解析API失败，尝试使用官方API获取音频URL');
+      String nativeResult = await _getAudioUrlWithNativeApi(videoId);
+      if (nativeResult.isNotEmpty) {
+        debugPrint('成功通过官方API获取音频URL');
+        return nativeResult;
+      }
+
+      // 都失败了，返回空字符串
+      debugPrint('所有方法获取音频URL都失败，请检查网络连接或更新API');
+      return '';
     } catch (e) {
-      debugPrint('获取音频URL失败: $e');
+      debugPrint('获取音频URL过程中发生异常: $e');
+      return '';
+    }
+  }
+
+  // 使用B站官方API获取音频URL
+  Future<String> _getAudioUrlWithNativeApi(String videoId) async {
+    try {
+      if (videoId.isEmpty) {
+        return '';
+      }
+
+      // 标准化视频ID
+      String standardizedId = videoId;
+      if (!videoId.startsWith('BV') && !videoId.startsWith('av')) {
+        standardizedId = 'BV$videoId';
+      }
+
+      debugPrint('使用官方API获取音频URL，视频ID: $standardizedId');
+
+      // 步骤1: 获取视频详情以获取cid
+      final dio = Dio()
+        ..options.connectTimeout = const Duration(seconds: 15)
+        ..options.receiveTimeout = const Duration(seconds: 15);
+
+      final response = await dio.get(
+        'https://api.bilibili.com/x/web-interface/view',
+        queryParameters: {'bvid': standardizedId},
+        options: Options(
+          headers: {
+            'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Referer': 'https://www.bilibili.com',
+            'Origin': 'https://www.bilibili.com',
+            'Cookie':
+                'buvid3=${_generateRandomBuvid()}; _uuid=${_generateRandomUuid()};',
+          },
+        ),
+      );
+
+      if (response.statusCode != 200 || response.data['code'] != 0) {
+        debugPrint('获取视频详情失败: ${response.data['message']}');
+        return '';
+      }
+
+      final String cid = response.data['data']['cid'].toString();
+      debugPrint('获取到视频CID: $cid');
+
+      // 步骤2: 获取音频流URL
+      final playUrlResponse = await dio.get(
+        'https://api.bilibili.com/x/player/playurl',
+        queryParameters: {
+          'bvid': standardizedId,
+          'cid': cid,
+          'fnval': '16', // 请求dash格式
+          'fnver': '0',
+          'fourk': '1',
+        },
+        options: Options(
+          headers: {
+            'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Referer': 'https://www.bilibili.com/video/$standardizedId',
+            'Origin': 'https://www.bilibili.com',
+            'Cookie':
+                'buvid3=${_generateRandomBuvid()}; _uuid=${_generateRandomUuid()};',
+          },
+        ),
+      );
+
+      if (playUrlResponse.statusCode != 200 ||
+          playUrlResponse.data['code'] != 0) {
+        debugPrint('获取音频URL失败: ${playUrlResponse.data['message']}');
+        return '';
+      }
+
+      // 步骤3: 从dash格式中提取音频流URL
+      final dashData = playUrlResponse.data['data']['dash'];
+      if (dashData == null ||
+          dashData['audio'] == null ||
+          dashData['audio'].isEmpty) {
+        debugPrint('未找到音频流');
+
+        // 尝试备用方法：从非dash格式中获取
+        if (playUrlResponse.data['data']['durl'] != null &&
+            playUrlResponse.data['data']['durl'].isNotEmpty) {
+          final String backupUrl =
+              playUrlResponse.data['data']['durl'][0]['url'];
+          debugPrint('使用备用方法获取到URL');
+          return backupUrl;
+        }
+
+        return '';
+      }
+
+      // 获取码率最高的音频
+      final List<dynamic> audioList = dashData['audio'];
+      audioList.sort(
+        (a, b) => (b['bandwidth'] ?? 0).compareTo(a['bandwidth'] ?? 0),
+      );
+
+      final String audioUrl = audioList.first['baseUrl'] ?? '';
+      debugPrint(
+          '获取到音频URL: ${audioUrl.length > 50 ? audioUrl.substring(0, 50) + "..." : audioUrl}');
+
+      return audioUrl;
+    } catch (e) {
+      debugPrint('使用官方API获取音频URL失败: $e');
       return '';
     }
   }
 
   // 使用mir6 API获取音频URL
-  Future<String> getAudioUrlWithMir6Api(String videoId) async {
+  Future<String?> getAudioUrlWithMir6Api(String videoId) async {
     try {
-      // 标准化视频ID（移除可能的前缀）
-      String standardizedId = videoId;
-      if (!videoId.startsWith('BV') && !videoId.startsWith('av')) {
-        standardizedId = 'BV' + videoId;
-      }
+      final videoUrl = 'https://www.bilibili.com/video/$videoId';
+      final apiUrl = 'https://api.mir6.com/api/bzjiexi?url=$videoUrl&type=json';
 
-      // 构造视频URL
-      final videoUrl = 'https://www.bilibili.com/video/$standardizedId';
+      final response = await _dio.get(apiUrl);
 
-      // 尝试先获取JSON数据
-      final apiUrl = 'https://api.mir6.com/api/bzjiexi';
-      final jsonUrl = '$apiUrl?url=$videoUrl&type=json';
-
-      debugPrint('尝试通过mir6 API获取视频信息: $jsonUrl');
-
-      try {
-        // 使用dio获取视频JSON信息
-        final response = await Dio().get(jsonUrl,
-            options: Options(
-              headers: {
-                'User-Agent':
-                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-              },
-              responseType: ResponseType.json,
-              validateStatus: (status) => status! < 500,
-            ));
-
-        if (response.statusCode == 200 && response.data != null) {
-          debugPrint('获取到视频信息');
-
-          // 从JSON数据中提取直链URL
-          if (response.data['data'] != null &&
-              response.data['data'][0] != null &&
-              response.data['data'][0]['video_url'] != null) {
-            final directUrl = response.data['data'][0]['video_url'];
-            debugPrint('从JSON中获取到视频直链: $directUrl');
-            return directUrl;
+      if (response.statusCode == 200) {
+        final data = response.data;
+        if (data != null && data['data'] != null && data['data'].isNotEmpty) {
+          final videoUrl = data['data'][0]['video_url'];
+          if (videoUrl != null && videoUrl.isNotEmpty) {
+            return videoUrl;
           }
         }
-      } catch (e) {
-        debugPrint('获取JSON数据失败: $e');
       }
-
-      // 如果JSON方式失败，直接使用MP4方式
-      final mp4Url = '$apiUrl?url=$videoUrl&type=mp4';
-      debugPrint('使用直接MP4链接: $mp4Url');
-      return mp4Url;
+      return null;
     } catch (e) {
-      debugPrint('获取音频URL失败: $e');
-      return '';
+      _logger.severe('Failed to get audio URL with Mir6 API: $e');
+      return null;
     }
   }
 
-  // 使用原生API获取音频URL
-  Future<String> _getAudioUrlWithNativeApi(String videoId) async {
+  // 使用备用API获取音频URL
+  Future<String> getAudioUrlWithBackupApi(String videoId) async {
     try {
-      // 获取视频详情，提取cid
-      final videoDetail = await getVideoDetail(videoId);
-      if (videoDetail == null || videoDetail.cid == null) {
+      if (videoId.isEmpty) {
         return '';
       }
 
-      final String cid = videoDetail.cid!;
-
-      // 构建请求参数
-      final Map<String, dynamic> params = {
-        'bvid': videoId.startsWith('BV') ? videoId : null,
-        'aid': videoId.startsWith('av') ? videoId.substring(2) : null,
-        'cid': cid,
-        'fnval': 16, // 获取音频
-      };
-
-      // 移除空值
-      params.removeWhere((key, value) => value == null);
-
-      // 发送请求
-      final response = await _dio.get(
-        '$_apiBaseUrl/x/player/playurl',
-        queryParameters: params,
-      );
-
-      // 检查响应
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> data = response.data;
-
-        // 检查API返回的状态码
-        if (data['code'] == 0 && data['data'] != null) {
-          final List<dynamic> dashAudio = data['data']['dash']?['audio'] ?? [];
-
-          if (dashAudio.isNotEmpty) {
-            // 查找最高质量的音频
-            dashAudio.sort(
-                (a, b) => (b['bandwidth'] ?? 0).compareTo(a['bandwidth'] ?? 0));
-            return dashAudio.first['baseUrl'] ?? '';
-          }
-        }
+      // 确保有正确的BV号格式
+      String standardizedId = videoId;
+      if (!videoId.startsWith('BV') && !videoId.startsWith('av')) {
+        standardizedId = 'BV$videoId';
       }
 
-      return '';
+      // 构造视频URL
+      final videoUrl = Uri.encodeFull(
+        'https://www.bilibili.com/video/$standardizedId',
+      );
+
+      // 使用另一个备用解析API
+      final apiUrl = 'https://jiexi.t7g.cn/?url=$videoUrl';
+      debugPrint('使用备用解析API: $apiUrl');
+
+      return apiUrl;
     } catch (e) {
-      debugPrint('原生API获取音频URL失败: $e');
+      debugPrint('构建备用API链接失败: $e');
       return '';
     }
   }
 
   // 丰富视频信息
   Future<player_models.AudioItem?> enrichVideoWithMir6Api(
-      player_models.AudioItem audioItem) async {
+    player_models.AudioItem audioItem,
+  ) async {
     try {
       if (audioItem.audioUrl.isNotEmpty) {
         return audioItem;
@@ -635,14 +624,13 @@ class BilibiliService {
   }
 
   // 获取热门视频
-  Future<List<VideoItem>> getPopularVideos(
-      {int page = 1, int pageSize = 20}) async {
+  Future<List<VideoItem>> getPopularVideos({
+    int page = 1,
+    int pageSize = 20,
+  }) async {
     try {
       // 构建请求参数
-      final Map<String, dynamic> params = {
-        'ps': pageSize,
-        'pn': page,
-      };
+      final Map<String, dynamic> params = {'ps': pageSize, 'pn': page};
 
       // 发送请求
       final response = await _dio.get(
@@ -681,8 +669,11 @@ class BilibiliService {
   }
 
   // 获取分区视频
-  Future<List<VideoItem>> getCategoryVideos(int tid,
-      {int page = 1, int pageSize = 20}) async {
+  Future<List<VideoItem>> getCategoryVideos(
+    int tid, {
+    int page = 1,
+    int pageSize = 20,
+  }) async {
     try {
       // 构建请求参数
       final Map<String, dynamic> params = {
@@ -728,8 +719,11 @@ class BilibiliService {
   }
 
   // 获取UP主的视频
-  Future<List<VideoItem>> getUploaderVideos(String mid,
-      {int page = 1, int pageSize = 30}) async {
+  Future<List<VideoItem>> getUploaderVideos(
+    String mid, {
+    int page = 1,
+    int pageSize = 30,
+  }) async {
     try {
       // 构建请求参数
       final Map<String, dynamic> params = {
@@ -786,27 +780,28 @@ class BilibiliService {
     }
   }
 
-  // 添加到搜索历史
+  // 将关键词添加到搜索历史
   void _addToSearchHistory(String keyword) {
+    if (keyword.isEmpty) return;
+
     try {
-      if (keyword.isEmpty) return;
+      List<String> history = _prefs.getStringList('search_history') ?? [];
 
-      // 获取现有历史
-      List<String> history = _prefs.getStringList(_searchHistoryKey) ?? [];
-
-      // 如果关键词已存在，先移除
+      // 如果已经存在，先移除旧的
       history.remove(keyword);
 
-      // 添加到列表开头
+      // 添加到最前面
       history.insert(0, keyword);
 
       // 限制历史记录数量
-      if (history.length > 20) {
-        history = history.sublist(0, 20);
+      if (history.length > 10) {
+        history = history.sublist(0, 10);
       }
 
-      // 保存历史
-      _prefs.setStringList(_searchHistoryKey, history);
+      // 保存到本地
+      _prefs.setStringList('search_history', history);
+
+      debugPrint('添加到搜索历史: $keyword，当前历史: $history');
     } catch (e) {
       debugPrint('添加搜索历史失败: $e');
     }
@@ -815,7 +810,7 @@ class BilibiliService {
   // 获取搜索历史
   List<String> getSearchHistory() {
     try {
-      return _prefs.getStringList(_searchHistoryKey) ?? [];
+      return _prefs.getStringList('search_history') ?? [];
     } catch (e) {
       debugPrint('获取搜索历史失败: $e');
       return [];
@@ -823,74 +818,128 @@ class BilibiliService {
   }
 
   // 清除搜索历史
-  Future<bool> clearSearchHistory() async {
+  Future<void> clearSearchHistory() async {
     try {
-      return await _prefs.remove(_searchHistoryKey);
+      await _prefs.remove('search_history');
+      debugPrint('已清除搜索历史');
     } catch (e) {
       debugPrint('清除搜索历史失败: $e');
-      return false;
-    }
-  }
-
-  // 添加到播放历史
-  void _addToPlayHistory(VideoItem video) {
-    try {
-      // 获取现有历史
-      String historyJson = _prefs.getString(_playHistoryKey) ?? '[]';
-      List<dynamic> history = jsonDecode(historyJson);
-
-      // 检查是否已存在
-      int existingIndex = history.indexWhere((item) => item['id'] == video.id);
-      if (existingIndex != -1) {
-        // 如果存在，移除旧的
-        history.removeAt(existingIndex);
-      }
-
-      // 添加到开头
-      history.insert(0, video.toJson());
-
-      // 限制历史记录数量
-      if (history.length > 100) {
-        history = history.sublist(0, 100);
-      }
-
-      // 保存历史
-      _prefs.setString(_playHistoryKey, jsonEncode(history));
-    } catch (e) {
-      debugPrint('添加播放历史失败: $e');
     }
   }
 
   // 获取播放历史
-  List<VideoItem> getPlayHistory() {
+  Future<List<VideoItem>> getPlayHistory() async {
     try {
-      final String historyJson = _prefs.getString(_playHistoryKey) ?? '[]';
-      final List<dynamic> historyList = json.decode(historyJson);
-
-      final List<VideoItem> history = [];
-      for (final item in historyList) {
-        try {
-          final Map<String, dynamic> videoJson = item;
-          final video = VideoItem(
-            id: videoJson['id'],
-            title: videoJson['title'],
-            uploader: videoJson['uploader'],
-            uploaderId: videoJson['uploaderId'] ?? '',
-            thumbnail: videoJson['thumbnail'],
-            playCount: videoJson['playCount'],
-            duration: videoJson['duration'],
-            publishDate: videoJson['publishDate'] ?? '',
-          );
-          history.add(video);
-        } catch (e) {
-          debugPrint('解析播放历史项失败: $e');
-        }
+      // 尝试从本地存储获取播放历史
+      final historyJson = _prefs.getString(_playHistoryKey);
+      if (historyJson == null || historyJson.isEmpty) {
+        debugPrint('本地没有播放历史记录');
+        return [];
       }
 
-      return history;
+      try {
+        final List<dynamic> historyList = json.decode(historyJson);
+        final List<VideoItem> videos = [];
+
+        for (var item in historyList) {
+          try {
+            final video = VideoItem.fromJson(item);
+            videos.add(video);
+          } catch (e) {
+            debugPrint('解析历史记录项失败: $e');
+            // 继续处理下一项
+          }
+        }
+
+        return videos;
+      } catch (e) {
+        debugPrint('解析播放历史JSON失败: $e');
+        // 如果解析失败，清除可能损坏的历史记录
+        await _prefs.remove(_playHistoryKey);
+        return [];
+      }
     } catch (e) {
       debugPrint('获取播放历史失败: $e');
       return [];
+    }
+  }
+
+  // 获取收藏列表
+  Future<List<VideoItem>> getFavorites() async {
+    try {
+      // 检查登录状态
+      final authCookies = _prefs.getString(_cookieKey);
+      if (authCookies == null || authCookies.isEmpty) {
+        return [];
+      }
+
+      // 尝试获取远程收藏
+      final response = await _dio.get(
+        '$_apiBaseUrl/x/v3/fav/resource/list',
+        queryParameters: {
+          'media_id': 'default',
+          'pn': 1,
+          'ps': 20,
+          'keyword': '',
+          'order': 'mtime',
+          'type': 0,
+        },
+      );
+
+      if (response.statusCode == 200 &&
+          response.data['code'] == 0 &&
+          response.data['data'] != null) {
+        final List<dynamic> items = response.data['data']['medias'] ?? [];
+        return items.map((item) => VideoItem.fromJson(item)).toList();
+      }
+
+      // 如果远程获取失败，尝试从本地获取
+      final favJson = _prefs.getString(_favoriteKey);
+      if (favJson == null || favJson.isEmpty) {
+        return [];
+      }
+
+      final List<dynamic> favList = json.decode(favJson);
+      return favList.map((json) => VideoItem.fromJson(json)).toList();
+    } catch (e) {
+      debugPrint('获取收藏失败: $e');
+
+      // 如果远程获取失败，尝试从本地获取
+      try {
+        final favJson = _prefs.getString(_favoriteKey);
+        if (favJson == null || favJson.isEmpty) {
+          return [];
+        }
+
+        final List<dynamic> favList = json.decode(favJson);
+        return favList.map((json) => VideoItem.fromJson(json)).toList();
+      } catch (e) {
+        debugPrint('获取本地收藏失败: $e');
+        return [];
+      }
+    }
+  }
+
+  // 添加到播放历史的辅助方法
+  void _addToPlayHistory(VideoItem video) async {
+    try {
+      final List<VideoItem> history = await getPlayHistory();
+
+      // 移除已存在的相同视频（如果有）
+      history.removeWhere((item) => item.id == video.id);
+
+      // 添加到历史开头
+      history.insert(0, video);
+
+      // 限制历史记录数量
+      final List<VideoItem> limitedHistory = history.take(100).toList();
+
+      // 保存到本地
+      final List<Map<String, dynamic>> historyJson =
+          limitedHistory.map((video) => video.toJson()).toList();
+      await _prefs.setString(_playHistoryKey, json.encode(historyJson));
+    } catch (e) {
+      debugPrint('添加到播放历史失败: $e');
     }
   }
 
@@ -912,38 +961,6 @@ class BilibiliService {
   // 清空历史记录
   void clearPlayHistory() {
     _prefs.setStringList(_playHistoryKey, []);
-  }
-
-  // 获取收藏列表
-  List<VideoItem> getFavorites() {
-    try {
-      final favoriteList = _prefs.getStringList(_favoriteKey) ?? [];
-
-      final List<VideoItem> favorites = [];
-      for (final item in favoriteList) {
-        try {
-          final Map<String, dynamic> videoJson = json.decode(item);
-          final video = VideoItem(
-            id: videoJson['id'],
-            title: videoJson['title'],
-            uploader: videoJson['uploader'],
-            uploaderId: videoJson['uploaderId'] ?? '',
-            thumbnail: videoJson['thumbnail'],
-            playCount: videoJson['playCount'],
-            duration: videoJson['duration'],
-            publishDate: videoJson['publishDate'] ?? '',
-          );
-          favorites.add(video);
-        } catch (e) {
-          debugPrint('解析收藏列表项失败: $e');
-        }
-      }
-
-      return favorites;
-    } catch (e) {
-      debugPrint('获取收藏列表失败: $e');
-      return [];
-    }
   }
 
   // 添加到收藏
@@ -1051,11 +1068,7 @@ class BilibiliService {
       final isLoggedIn = await checkLogin();
 
       if (!isLoggedIn) {
-        return {
-          'isLogin': false,
-          'username': '',
-          'avatar': '',
-        };
+        return {'isLogin': false, 'username': '', 'avatar': ''};
       }
 
       final response = await _dio.get(
@@ -1081,11 +1094,7 @@ class BilibiliService {
         };
       }
 
-      return {
-        'isLogin': false,
-        'username': '',
-        'avatar': '',
-      };
+      return {'isLogin': false, 'username': '', 'avatar': ''};
     } catch (e) {
       debugPrint('获取用户信息失败: $e');
       return {
@@ -1141,4 +1150,123 @@ class BilibiliService {
       return [];
     }
   }
+
+  Future<bool> checkLogin() async {
+    try {
+      final response = await _dio.get('$_apiBaseUrl/x/web-interface/nav');
+      final data = response.data;
+      return data['code'] == 0 && data['data']['isLogin'] == true;
+    } catch (e) {
+      debugPrint('检查登录状态失败: $e');
+      return false;
+    }
+  }
+
+  // 使用Cookie登录
+  Future<bool> loginWithCookies(
+      String sessdata, String biliJct, String dedeUserID) async {
+    try {
+      // 设置Cookie
+      _dio.options.headers['Cookie'] =
+          'SESSDATA=$sessdata; bili_jct=$biliJct; DedeUserID=$dedeUserID';
+
+      // 验证登录状态
+      final response = await _dio.get('$_apiBaseUrl/x/web-interface/nav');
+
+      if (response.statusCode == 200 && response.data['code'] == 0) {
+        final userData = response.data['data'];
+        if (userData['isLogin'] == true) {
+          _logger.info('登录成功: ${userData['uname']}');
+
+          // 保存Cookie和用户信息
+          await saveCookies(
+            sessdata: sessdata,
+            biliJct: biliJct,
+            dedeUserID: dedeUserID,
+            userName: userData['uname'],
+            userAvatar: userData['face'],
+          );
+
+          return true;
+        }
+      }
+
+      _logger.warning('登录失败: ${response.data['message']}');
+      return false;
+    } catch (e) {
+      _logger.severe('登录出错: $e');
+      return false;
+    }
+  }
+
+  // 获取登录二维码
+  Future<Map<String, String>> getQRCode() async {
+    try {
+      final response =
+          await _dio.get('$_apiBaseUrl/x/passport-login/web/qrcode/generate');
+
+      if (response.statusCode == 200 && response.data['code'] == 0) {
+        final data = response.data['data'];
+        return {
+          'url': data['url'],
+          'key': data['qrcode_key'],
+        };
+      }
+
+      throw Exception('获取二维码失败: ${response.data['message']}');
+    } catch (e) {
+      _logger.severe('获取二维码失败: $e');
+      rethrow;
+    }
+  }
+
+  // 检查二维码状态
+  Future<Map<String, dynamic>> checkQRCodeStatus(String qrcodeKey) async {
+    try {
+      final response = await _dio.get(
+        '$_apiBaseUrl/x/passport-login/web/qrcode/poll',
+        queryParameters: {'qrcode_key': qrcodeKey},
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data;
+        if (data['code'] == 0) {
+          final status = data['data']['code'];
+          if (status == 0) {
+            // 登录成功，获取Cookie
+            final cookies = data['data']['cookie_info']['cookies'];
+            final cookieMap = {
+              for (var cookie in cookies) cookie['name']: cookie['value']
+            };
+
+            // 保存Cookie
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('sessdata', cookieMap['SESSDATA'] ?? '');
+            await prefs.setString('bili_jct', cookieMap['bili_jct'] ?? '');
+            await prefs.setString(
+                'dede_user_id', cookieMap['DedeUserID'] ?? '');
+
+            // 设置Dio的Cookie
+            _dio.options.headers['Cookie'] =
+                cookies.map((c) => '${c['name']}=${c['value']}').join('; ');
+
+            return {'status': true, 'message': '登录成功'};
+          } else if (status == 86038) {
+            return {'status': false, 'message': '二维码已失效'};
+          } else if (status == 86090) {
+            return {'status': false, 'message': '二维码已扫码，请在手机上确认'};
+          } else if (status == 86101) {
+            return {'status': false, 'message': '未扫码'};
+          }
+        }
+      }
+
+      return {'status': false, 'message': '未知状态'};
+    } catch (e) {
+      _logger.severe('检查二维码状态失败: $e');
+      return {'status': false, 'message': '检查失败: $e'};
+    }
+  }
 }
+
+class _searchHistoryKey {}

@@ -1,7 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import '../../models/auth_state.dart'; // Keep this import
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../../../core/services/bilibili_service.dart';
+import 'package:flutter_easyloading/flutter_easyloading.dart';
+import 'package:animations/animations.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -12,37 +16,163 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage>
     with SingleTickerProviderStateMixin {
-  final _usernameController = TextEditingController();
-  final _passwordController = TextEditingController();
+  final _bilibiliService = BilibiliService();
+  final _sessdataController = TextEditingController();
+  final _biliJctController = TextEditingController();
+  final _dedeUserIDController = TextEditingController();
+
   late TabController _tabController;
-  bool _obscurePassword = true;
+  String? _qrCodeUrl;
+  String? _qrCodeKey;
+  Timer? _qrCodeTimer;
+  bool _isLoading = false;
+  bool _obscureText = true;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _loadSavedCookies();
   }
 
   @override
   void dispose() {
-    _usernameController.dispose();
-    _passwordController.dispose();
     _tabController.dispose();
+    _sessdataController.dispose();
+    _biliJctController.dispose();
+    _dedeUserIDController.dispose();
+    _qrCodeTimer?.cancel();
     super.dispose();
   }
 
-  void _handlePasswordLogin(AuthState authState) {
-    final username = _usernameController.text.trim();
-    final password = _passwordController.text.trim();
+  Future<void> _loadSavedCookies() async {
+    final cookies = await _bilibiliService.getSavedCookies();
+    setState(() {
+      _sessdataController.text = cookies['sessdata'] ?? '';
+      _biliJctController.text = cookies['bili_jct'] ?? '';
+      _dedeUserIDController.text = cookies['dede_user_id'] ?? '';
+    });
+  }
 
-    if (username.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请输入用户名和密码')),
-      );
+  Future<void> _loginWithCookies() async {
+    if (_sessdataController.text.isEmpty ||
+        _biliJctController.text.isEmpty ||
+        _dedeUserIDController.text.isEmpty) {
+      EasyLoading.showError('请填写完整的Cookie信息');
       return;
     }
 
-    authState.loginWithPassword(username, password);
+    setState(() => _isLoading = true);
+    try {
+      final success = await _bilibiliService.loginWithCookies(
+        _sessdataController.text,
+        _biliJctController.text,
+        _dedeUserIDController.text,
+      );
+
+      if (success) {
+        EasyLoading.showSuccess('登录成功');
+        if (mounted) {
+          Navigator.of(context).pop(true);
+        }
+      } else {
+        EasyLoading.showError('登录失败，请检查Cookie是否正确');
+      }
+    } catch (e) {
+      EasyLoading.showError('登录出错: $e');
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _generateQRCode() async {
+    setState(() => _isLoading = true);
+    try {
+      final qrData = await _bilibiliService.getQRCode();
+      setState(() {
+        _qrCodeUrl = qrData['url'];
+        _qrCodeKey = qrData['key'];
+      });
+      _startQRCodeCheck();
+    } catch (e) {
+      EasyLoading.showError('获取二维码失败: $e');
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  void _startQRCodeCheck() {
+    _qrCodeTimer?.cancel();
+    _qrCodeTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+      if (_qrCodeKey == null) {
+        timer.cancel();
+        return;
+      }
+
+      try {
+        final status = await _bilibiliService.checkQRCodeStatus(_qrCodeKey!);
+        if (status['status']) {
+          timer.cancel();
+          EasyLoading.showSuccess('登录成功');
+          if (mounted) {
+            Navigator.of(context).pop(true);
+          }
+        } else if (status['message'] == '二维码已失效') {
+          timer.cancel();
+          EasyLoading.showError('二维码已失效，请重新获取');
+          setState(() {
+            _qrCodeUrl = null;
+            _qrCodeKey = null;
+          });
+        } else {
+          EasyLoading.showInfo(status['message']);
+        }
+      } catch (e) {
+        timer.cancel();
+        EasyLoading.showError('检查二维码状态失败: $e');
+      }
+    });
+  }
+
+  Widget _buildCookieInput({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    required IconData icon,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: TextField(
+        controller: controller,
+        obscureText: _obscureText,
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hint,
+          prefixIcon: Icon(icon),
+          suffixIcon: IconButton(
+            icon: Icon(_obscureText ? Icons.visibility : Icons.visibility_off),
+            onPressed: () => setState(() => _obscureText = !_obscureText),
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+          filled: true,
+          fillColor: Theme.of(context).cardColor,
+        ),
+      ),
+    );
   }
 
   @override
@@ -53,210 +183,245 @@ class _LoginPageState extends State<LoginPage>
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
+            Tab(text: 'Cookie登录'),
             Tab(text: '扫码登录'),
-            Tab(text: '密码登录'),
-          ],
-          onTap: (index) {
-            // Initiate QR code fetch when switching to the QR tab
-            if (index == 0) {
-              final authState = context.read<AuthState>();
-              // Only initiate if not already loading and no QR code is present/valid
-              if (!authState.isLoading &&
-                  authState.qrCodeUrl == null &&
-                  authState.qrCodeStatus != QRCodeStatus.confirmed) {
-                authState.initiateQRCodeLogin();
-              }
-            }
-          },
-        ),
-      ),
-      body: Consumer<AuthState>(
-        // Keep using Consumer
-        builder: (context, authState, child) {
-          // Display loading indicator centrally, regardless of tab
-          if (authState.isLoading && authState.currentUser == null) {
-            // Show loading only if not logged in yet, otherwise let views handle loading state
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          // Handle errors globally via SnackBar
-          if (authState.error != null) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(authState.error!)),
-              );
-              authState.clearError(); // Clear error after showing
-            });
-          }
-
-          // If logged in, potentially navigate away or show a success message
-          // This part depends on the desired navigation flow after login
-          if (authState.isLoggedIn) {
-            // Example: Navigate back or to home screen
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (Navigator.canPop(context)) {
-                Navigator.pop(context);
-              } else {
-                // Handle case where login page is the root
-              }
-            });
-            // Show a placeholder while navigating
-            return const Center(child: Text('登录成功！正在跳转...'));
-          }
-
-          return TabBarView(
-            controller: _tabController,
-            physics:
-                const NeverScrollableScrollPhysics(), // Prevent swiping between tabs
-            children: [
-              _buildQRCodeLoginView(context, authState),
-              _buildPasswordLoginView(authState),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildQRCodeLoginView(BuildContext context, AuthState authState) {
-    // Use a switch statement for clarity on QRCodeStatus
-    Widget qrContent;
-    String statusText = '';
-
-    switch (authState.qrCodeStatus) {
-      case QRCodeStatus.waiting:
-        if (authState.qrCodeUrl != null) {
-          qrContent = QrImageView(
-            data: authState.qrCodeUrl!,
-            version: QrVersions.auto,
-            size: 200.0,
-          );
-          statusText = '请使用哔哩哔哩APP扫描二维码';
-        } else if (authState.isLoading) {
-          qrContent = const CircularProgressIndicator();
-          statusText = '正在获取二维码...';
-        } else {
-          qrContent = ElevatedButton(
-            onPressed: () => authState.initiateQRCodeLogin(),
-            child: const Text('获取/刷新二维码'),
-          );
-          statusText = '点击按钮获取二维码';
-        }
-        break;
-      case QRCodeStatus.scanned:
-        qrContent = const Icon(Icons.check_circle_outline,
-            size: 100, color: Colors.green);
-        statusText = '扫描成功，请在手机上确认登录';
-        break;
-      case QRCodeStatus.confirmed:
-        // This case is handled by the main builder (isLoggedIn check)
-        // But we can show a temporary success message here if needed
-        qrContent =
-            const Icon(Icons.check_circle, size: 100, color: Colors.blue);
-        statusText = '登录成功！';
-        break;
-      case QRCodeStatus.expired:
-        qrContent = Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline, size: 100, color: Colors.orange),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () => authState.initiateQRCodeLogin(),
-              child: const Text('刷新二维码'),
-            ),
-          ],
-        );
-        statusText = '二维码已过期，请刷新';
-        break;
-      case QRCodeStatus.error:
-        qrContent = Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error, size: 100, color: Colors.red),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () => authState.initiateQRCodeLogin(),
-              child: const Text('重试'),
-            ),
-          ],
-        );
-        statusText =
-            authState.error ?? '发生错误，请重试'; // Show specific error if available
-        break;
-    }
-
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            SizedBox(
-              height: 220, // Allocate fixed space for QR/Icon
-              child: Center(child: qrContent),
-            ),
-            const SizedBox(height: 24.0),
-            Text(statusText, style: Theme.of(context).textTheme.titleMedium),
           ],
         ),
       ),
-    );
-  }
-
-  // _buildPasswordLoginView remains largely the same, ensure it uses authState.isLoading correctly
-  Widget _buildPasswordLoginView(AuthState authState) {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+      body: TabBarView(
+        controller: _tabController,
         children: [
-          TextField(
-            controller: _usernameController,
-            decoration: const InputDecoration(
-              labelText: '用户名',
-              prefixIcon: Icon(Icons.person),
-            ),
-            textInputAction: TextInputAction.next,
-            enabled: !authState.isLoading, // Disable input when loading
-          ),
-          const SizedBox(height: 16.0),
-          TextField(
-            controller: _passwordController,
-            decoration: InputDecoration(
-              labelText: '密码',
-              prefixIcon: const Icon(Icons.lock),
-              suffixIcon: IconButton(
-                icon: Icon(
-                  _obscurePassword ? Icons.visibility : Icons.visibility_off,
+          // Cookie登录
+          SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // 说明卡片
+                Card(
+                  margin: const EdgeInsets.only(bottom: 24),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          '如何获取Cookie？',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          '1. 打开浏览器，访问 bilibili.com 并登录\n'
+                          '2. 按F12打开开发者工具\n'
+                          '3. 切换到"Application"或"应用程序"标签\n'
+                          '4. 在左侧找到"Cookies"并点击\n'
+                          '5. 找到并复制以下三个值：',
+                          style: TextStyle(height: 1.5),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-                onPressed: () {
-                  setState(() {
-                    _obscurePassword = !_obscurePassword;
-                  });
-                },
-              ),
+                // SESSDATA输入框
+                Card(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'SESSDATA',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          '这是您的登录凭证，用于维持登录状态',
+                          style: TextStyle(
+                            color: Colors.grey,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        _buildCookieInput(
+                          controller: _sessdataController,
+                          label: 'SESSDATA',
+                          hint: '请输入SESSDATA',
+                          icon: Icons.cookie,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                // bili_jct输入框
+                Card(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'bili_jct',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          '这是您的CSRF令牌，用于验证操作',
+                          style: TextStyle(
+                            color: Colors.grey,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        _buildCookieInput(
+                          controller: _biliJctController,
+                          label: 'bili_jct',
+                          hint: '请输入bili_jct',
+                          icon: Icons.security,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                // DedeUserID输入框
+                Card(
+                  margin: const EdgeInsets.only(bottom: 24),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'DedeUserID',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          '这是您的用户ID，用于标识身份',
+                          style: TextStyle(
+                            color: Colors.grey,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        _buildCookieInput(
+                          controller: _dedeUserIDController,
+                          label: 'DedeUserID',
+                          hint: '请输入DedeUserID',
+                          icon: Icons.person,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                // 登录按钮
+                ElevatedButton(
+                  onPressed: _isLoading ? null : _loginWithCookies,
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: _isLoading
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('登录'),
+                ),
+                const SizedBox(height: 16),
+                // 清除按钮
+                TextButton.icon(
+                  onPressed: () {
+                    _sessdataController.clear();
+                    _biliJctController.clear();
+                    _dedeUserIDController.clear();
+                  },
+                  icon: const Icon(Icons.clear_all),
+                  label: const Text('清除所有输入'),
+                ),
+              ],
             ),
-            obscureText: _obscurePassword,
-            textInputAction: TextInputAction.done,
-            onSubmitted: authState.isLoading
-                ? null
-                : (_) => _handlePasswordLogin(authState),
-            enabled: !authState.isLoading, // Disable input when loading
           ),
-          const SizedBox(height: 24.0),
-          ElevatedButton(
-            // Show progress indicator inside button when loading
-            onPressed: authState.isLoading
-                ? null
-                : () => _handlePasswordLogin(authState),
-            child: authState.isLoading && _tabController.index == 1
-                ? const SizedBox(
-                    height: 20,
-                    width: 20,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white))
-                : const Text('登录'),
+          // 扫码登录
+          Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (_qrCodeUrl != null)
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).cardColor,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 10,
+                          offset: const Offset(0, 5),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        QrImageView(
+                          data: _qrCodeUrl!,
+                          version: QrVersions.auto,
+                          size: 200.0,
+                          backgroundColor: Colors.white,
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          '请使用B站APP扫描二维码登录',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          '二维码有效期为5分钟',
+                          style: TextStyle(
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  const Text('点击下方按钮获取二维码'),
+                const SizedBox(height: 24),
+                ElevatedButton.icon(
+                  onPressed: _isLoading ? null : _generateQRCode,
+                  icon: const Icon(Icons.qr_code),
+                  label: Text(_isLoading ? '获取中...' : '获取二维码'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),

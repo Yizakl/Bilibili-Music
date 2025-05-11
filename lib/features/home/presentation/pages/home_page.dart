@@ -1,20 +1,11 @@
-import 'package:bilibili_music/core/models/category.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import '../../../../core/models/audio_item.dart' as core_models;
-import '../../../../core/services/bilibili_service.dart';
-import '../../../player/presentation/pages/player_page.dart';
-import '../../../player/models/audio_item.dart' as player_models;
-import '../../../search/presentation/pages/search_page.dart';
-import '../../../settings/presentation/pages/settings_page.dart';
-import 'discover_page.dart' hide VideoCard;
-import '../../../library/presentation/pages/library_page.dart';
-import '../widgets/video_card.dart';
-import '../widgets/category_selector.dart';
-import '../../../../core/models/video_item.dart';
-import '../widgets/mini_player.dart';
+import '../../../../core/services/auth_service.dart';
 import '../../../../core/services/audio_player_manager.dart';
+import '../../../../core/services/bilibili_service.dart';
+import '../../../../features/player/models/audio_item.dart' as player_models;
+import '../../../../core/models/video_item.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -23,301 +14,127 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-  late Future<List<VideoItem>> _popularVideosFuture;
-  final TextEditingController _searchController = TextEditingController();
+class _HomePageState extends State<HomePage> {
+  int _selectedIndex = 0;
 
-  final List<Category> _categories = [
-    Category(id: 1, name: '音乐', icon: Icons.music_note),
-    Category(id: 3, name: '娱乐', icon: Icons.movie),
-    Category(id: 4, name: '游戏', icon: Icons.sports_esports),
-    Category(id: 5, name: '动画', icon: Icons.animation),
-    Category(id: 119, name: '鬼畜', icon: Icons.emoji_emotions),
-    Category(id: 160, name: '生活', icon: Icons.restaurant),
-    Category(id: 181, name: '影视', icon: Icons.video_library),
-    Category(id: 188, name: '科技', icon: Icons.science),
+  final List<Widget> _pages = [
+    const HomeTabView(),
+    const SearchTabView(),
+    const LibraryTabView(),
   ];
-
-  int _selectedCategoryId = 1; // 默认选择音乐分区
-  int _currentIndex = 0;
-  final PageController _pageController = PageController();
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 4, vsync: this);
-    _loadPopularVideos();
-  }
-
-  void _loadPopularVideos() {
-    final bilibiliService =
-        Provider.of<BilibiliService>(context, listen: false);
-    _popularVideosFuture = bilibiliService.getPopularVideos();
-  }
-
-  Future<List<VideoItem>> _loadCategoryVideos(int categoryId) {
-    final bilibiliService =
-        Provider.of<BilibiliService>(context, listen: false);
-    return bilibiliService.getCategoryVideos(categoryId);
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    _searchController.dispose();
-    _pageController.dispose();
-    super.dispose();
-  }
-
-  void _onCategorySelected(int categoryId) {
-    setState(() {
-      _selectedCategoryId = categoryId;
-    });
-  }
-
-  void _navigateToSearch() {
-    context.push('/search');
-  }
-
-  void _navigateToPlayer(VideoItem video) async {
-    final bilibiliService =
-        Provider.of<BilibiliService>(context, listen: false);
-
-    try {
-      // 使用mir6 API获取音频URL
-      final audioUrl = await bilibiliService.getAudioUrlWithMir6Api(video.id);
-      if (audioUrl.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('无法获取音频URL')),
-          );
-        }
-        return;
-      }
-
-      // 创建AudioItem
-      final audioItem = player_models.AudioItem(
-        id: video.id,
-        title: video.title,
-        uploader: video.uploader,
-        thumbnail: video.thumbnail,
-        audioUrl: audioUrl, // 使用mir6 API返回的URL
-        addedTime: DateTime.now(),
-      );
-
-      if (mounted) {
-        context.push('/player', extra: {'audio_item': audioItem});
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('获取音频失败: $e')),
-        );
-      }
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
-    final audioPlayerManager = Provider.of<AudioPlayerManager>(context);
-    final theme = Theme.of(context);
+    final audioManager = Provider.of<AudioPlayerManager>(context);
 
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Image.asset(
-              'assets/icons/logo.svg',
-              width: 24,
-              height: 24,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              'Bilibili Music',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: theme.colorScheme.primary,
-              ),
-            ),
-          ],
-        ),
+        title: const Text('Bilibili Music'),
+        centerTitle: true,
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
-            onPressed: () => context.push('/settings'),
-          ),
+            onPressed: () {
+              context.push('/settings');
+            },
+          )
         ],
       ),
-      body: PageView(
-        controller: _pageController,
-        onPageChanged: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-        children: [
-          // 首页内容
-          Column(
-            children: [
-              // 搜索栏
-              Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: GestureDetector(
-                  onTap: _navigateToSearch,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surface,
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.search,
-                          color: theme.colorScheme.onSurface.withOpacity(0.6),
-                        ),
-                        const SizedBox(width: 12),
-                        Text(
-                          '搜索视频或输入BV号',
-                          style: theme.textTheme.bodyLarge?.copyWith(
-                            color: theme.colorScheme.onSurface.withOpacity(0.6),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-
-              // 分类选择器
-              CategorySelector(
-                categories: _categories,
-                selectedCategoryId: _selectedCategoryId,
-                onCategorySelected: _onCategorySelected,
-              ),
-
-              const SizedBox(height: 16),
-
-              // 历史记录列表
-              Expanded(
-                child: FutureBuilder<List<VideoItem>>(
-                  future: Future.value(
-                      Provider.of<BilibiliService>(context).getPlayHistory()),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return Center(
-                        child: CircularProgressIndicator(
-                          color: theme.colorScheme.primary,
-                        ),
-                      );
-                    }
-
-                    if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                      return Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.history,
-                              size: 64,
-                              color: theme.colorScheme.primary.withOpacity(0.5),
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              '暂无播放历史',
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                color: theme.colorScheme.onBackground
-                                    .withOpacity(0.6),
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-
-                    return ListView.builder(
-                      itemCount: snapshot.data!.length,
-                      itemBuilder: (context, index) {
-                        final item = snapshot.data![index];
-                        return ListTile(
-                          title: Text(item.title),
-                          subtitle: Text(item.uploader),
-                          leading: Image.network(
-                            item.thumbnail,
-                            width: 50,
-                            height: 50,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
-                              return Container(
-                                width: 50,
-                                height: 50,
-                                color: Colors.grey,
-                                child: const Icon(Icons.error),
-                              );
-                            },
-                          ),
-                          trailing: const Icon(Icons.play_arrow),
-                          onTap: () {
-                            _navigateToPlayer(item);
-                          },
-                        );
-                      },
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-          // 发现页
-          const DiscoverPage(),
-          // 搜索页
-          const SearchPage(),
-          // 设置页
-          const SettingsPage(),
-        ],
-      ),
+      body: _pages[_selectedIndex],
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // 迷你播放器
-          ValueListenableBuilder<player_models.AudioItem?>(
-            valueListenable: audioPlayerManager.currentAudioNotifier,
-            builder: (context, currentAudio, child) {
-              if (currentAudio == null) {
+          // Mini Player
+          Consumer<AudioPlayerManager>(
+            builder: (context, manager, _) {
+              final currentItem = manager.currentAudio;
+              if (currentItem == null) {
                 return const SizedBox.shrink();
               }
 
-              return MiniPlayer(
-                currentAudio: currentAudio,
+              return GestureDetector(
                 onTap: () {
-                  context.push('/player', extra: {'audio_item': currentAudio});
+                  context.push('/player', extra: {'audio_item': currentItem});
                 },
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).cardColor,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 4,
+                        offset: const Offset(0, -1),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        color: Colors.grey[300],
+                        child: Center(
+                          child: Text(
+                            "HandshakeException: Connection terminated during handshake",
+                            style: const TextStyle(fontSize: 8),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              currentItem.title,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            Text(
+                              currentItem.uploader,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: Icon(
+                          manager.isPlaying ? Icons.pause : Icons.play_arrow,
+                        ),
+                        onPressed: () {
+                          if (manager.isPlaying) {
+                            manager.player.pause();
+                          } else {
+                            manager.player.play();
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ),
               );
             },
           ),
-
-          // 底部导航栏
+          // Navigation Bar
           NavigationBar(
-            selectedIndex: _currentIndex,
+            selectedIndex: _selectedIndex,
             onDestinationSelected: (index) {
               setState(() {
-                _currentIndex = index;
-                _pageController.animateToPage(
-                  index,
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeInOut,
-                );
+                _selectedIndex = index;
               });
             },
             destinations: const [
@@ -327,19 +144,14 @@ class _HomePageState extends State<HomePage>
                 label: '首页',
               ),
               NavigationDestination(
-                icon: Icon(Icons.explore_outlined),
-                selectedIcon: Icon(Icons.explore),
-                label: '发现',
-              ),
-              NavigationDestination(
                 icon: Icon(Icons.search_outlined),
                 selectedIcon: Icon(Icons.search),
                 label: '搜索',
               ),
               NavigationDestination(
-                icon: Icon(Icons.settings_outlined),
-                selectedIcon: Icon(Icons.settings),
-                label: '设置',
+                icon: Icon(Icons.library_music_outlined),
+                selectedIcon: Icon(Icons.library_music),
+                label: '收藏',
               ),
             ],
           ),
@@ -347,364 +159,648 @@ class _HomePageState extends State<HomePage>
       ),
     );
   }
+}
 
-  Widget _buildRecommendedTab() {
-    final bilibiliService = Provider.of<BilibiliService>(context);
-    return FutureBuilder(
-      future: bilibiliService.getPopularVideos(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
+class HomeTabView extends StatefulWidget {
+  const HomeTabView({super.key});
 
-        if (snapshot.hasError) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                const SizedBox(height: 16),
-                Text('加载失败: ${snapshot.error}'),
-                const SizedBox(height: 16),
-                ElevatedButton(
-                  onPressed: () => setState(() {
-                    _loadPopularVideos();
-                  }),
-                  child: const Text('重试'),
-                ),
-              ],
-            ),
-          );
-        }
+  @override
+  _HomeTabViewState createState() => _HomeTabViewState();
+}
 
-        final videos = snapshot.data ?? [];
+class _HomeTabViewState extends State<HomeTabView> {
+  List<VideoItem> _recentlyPlayed = [];
+  bool _isLoadingHistory = true;
 
-        if (videos.isEmpty) {
-          return const Center(child: Text('暂无推荐视频'));
-        }
-
-        return RefreshIndicator(
-          onRefresh: () async {
-            setState(() {
-              _loadPopularVideos();
-            });
-          },
-          child: GridView.builder(
-            padding: const EdgeInsets.all(8),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              childAspectRatio: 0.75,
-              crossAxisSpacing: 8,
-              mainAxisSpacing: 8,
-            ),
-            itemCount: videos.length,
-            itemBuilder: (context, index) {
-              return VideoCard(
-                video: videos[index],
-                onTap: () => _navigateToPlayer(videos[index]),
-              );
-            },
-          ),
-        );
-      },
-    );
+  @override
+  void initState() {
+    super.initState();
+    _loadPlayHistory();
   }
 
-  Widget _buildPopularTab() {
-    return FutureBuilder(
-      future: _popularVideosFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
+  Future<void> _loadPlayHistory() async {
+    try {
+      final bilibiliService =
+          Provider.of<BilibiliService>(context, listen: false);
 
-        if (snapshot.hasError) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                const SizedBox(height: 16),
-                Text('加载失败: ${snapshot.error}'),
-                const SizedBox(height: 16),
-                ElevatedButton(
-                  onPressed: () => setState(() {
-                    _loadPopularVideos();
-                  }),
-                  child: const Text('重试'),
-                ),
-              ],
-            ),
-          );
-        }
+      // 检查服务是否可用
+      if (!context.mounted) {
+        return;
+      }
 
-        final videos = snapshot.data ?? [];
+      final history = await bilibiliService.getPlayHistory();
 
-        if (videos.isEmpty) {
-          return const Center(child: Text('暂无热门视频'));
-        }
+      if (!context.mounted) {
+        return;
+      }
 
-        return RefreshIndicator(
-          onRefresh: () async {
-            setState(() {
-              _loadPopularVideos();
-            });
-          },
-          child: ListView.builder(
-            padding: const EdgeInsets.all(8),
-            itemCount: videos.length,
-            itemBuilder: (context, index) {
-              return Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: InkWell(
-                  onTap: () => _navigateToPlayer(videos[index]),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Image.network(
-                            videos[index].thumbnail,
-                            width: 120,
-                            height: 80,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
-                              return Container(
-                                width: 120,
-                                height: 80,
-                                color: Colors.grey.shade300,
-                                child: const Icon(Icons.error),
-                              );
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                videos[index].title,
-                                style: Theme.of(context).textTheme.titleSmall,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                videos[index].uploader,
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                              const SizedBox(height: 4),
-                              Row(
-                                children: [
-                                  Icon(
-                                    Icons.play_arrow,
-                                    size: 16,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurface
-                                        .withOpacity(0.6),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    videos[index].formattedPlayCount,
-                                    style:
-                                        Theme.of(context).textTheme.bodySmall,
-                                  ),
-                                  const SizedBox(width: 16),
-                                  Icon(
-                                    Icons.access_time,
-                                    size: 16,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurface
-                                        .withOpacity(0.6),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    videos[index].duration,
-                                    style:
-                                        Theme.of(context).textTheme.bodySmall,
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        );
-      },
-    );
+      setState(() {
+        _recentlyPlayed = history;
+        _isLoadingHistory = false;
+      });
+    } catch (e) {
+      if (context.mounted) {
+        setState(() {
+          _recentlyPlayed = [];
+          _isLoadingHistory = false;
+        });
+      }
+      debugPrint('加载播放历史失败: $e');
+    }
   }
 
-  Widget _buildCategoryTab() {
-    return Column(
-      children: [
-        CategorySelector(
-          categories: _categories,
-          selectedCategoryId: _selectedCategoryId,
-          onCategorySelected: _onCategorySelected,
-        ),
-        Expanded(
-          child: FutureBuilder(
-            future: _loadCategoryVideos(_selectedCategoryId),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
+  @override
+  Widget build(BuildContext context) {
+    final authService = Provider.of<AuthService>(context);
+    final bilibiliService =
+        Provider.of<BilibiliService>(context, listen: false);
 
-              if (snapshot.hasError) {
-                return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error_outline,
-                          size: 48, color: Colors.red),
-                      const SizedBox(height: 16),
-                      Text('加载失败: ${snapshot.error}'),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: () => setState(() {}),
-                        child: const Text('重试'),
-                      ),
-                    ],
-                  ),
-                );
-              }
+    return RefreshIndicator(
+      onRefresh: () async {
+        await _loadPlayHistory();
+      },
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 用户信息卡片
+            if (authService.isLoggedIn && authService.currentUser != null)
+              UserInfoCard(user: authService.currentUser!)
+            else
+              const LoginPrompt(),
 
-              final videos = snapshot.data ?? [];
+            const SizedBox(height: 24),
 
-              if (videos.isEmpty) {
-                return const Center(child: Text('该分区暂无视频'));
-              }
-
-              return ListView.builder(
-                padding: const EdgeInsets.all(8),
-                itemCount: videos.length,
+            // 推荐区块
+            _buildSectionWithMoreButton(context, '推荐内容', () {
+              // 查看更多推荐内容
+            }),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 180,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: 5,
                 itemBuilder: (context, index) {
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: InkWell(
-                      onTap: () => _navigateToPlayer(videos[index]),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // 视频封面
-                          ClipRRect(
-                            borderRadius: const BorderRadius.vertical(
-                                top: Radius.circular(12)),
-                            child: Image.network(
-                              videos[index].thumbnail,
-                              width: double.infinity,
-                              height: 160,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Container(
-                                  width: double.infinity,
-                                  height: 160,
-                                  color: Colors.grey.shade300,
-                                  child: const Icon(Icons.error, size: 48),
-                                );
-                              },
-                            ),
-                          ),
-
-                          // 视频信息
-                          Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  videos[index].title,
-                                  style: Theme.of(context).textTheme.titleSmall,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  children: [
-                                    CircleAvatar(
-                                      radius: 14,
-                                      child: Text(
-                                        videos[index].uploader.substring(0, 1),
-                                        style: const TextStyle(fontSize: 12),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      videos[index].uploader,
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodyMedium,
-                                    ),
-                                    const Spacer(),
-                                    Icon(
-                                      Icons.play_arrow,
-                                      size: 16,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurface
-                                          .withOpacity(0.6),
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      videos[index].formattedPlayCount,
-                                      style:
-                                          Theme.of(context).textTheme.bodySmall,
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                  return RecommendCard(
+                    title: '推荐内容 ${index + 1}',
+                    subtitle: '推荐理由',
+                    imageUrl: 'https://via.placeholder.com/150',
+                    onTap: () {
+                      _playDemoAudio(context, '推荐内容 ${index + 1}', '推荐理由');
+                    },
                   );
                 },
-              );
-            },
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            // 最近播放
+            _buildSectionWithMoreButton(context, '最近播放', () {
+              // 查看更多最近播放
+            }),
+            const SizedBox(height: 8),
+
+            // 播放历史列表
+            _isLoadingHistory
+                ? const Center(child: CircularProgressIndicator())
+                : _recentlyPlayed.isEmpty
+                    ? const Center(child: Text('暂无播放历史'))
+                    : ListView.builder(
+                        physics: const NeverScrollableScrollPhysics(),
+                        shrinkWrap: true,
+                        itemCount: _recentlyPlayed.length > 3
+                            ? 3
+                            : _recentlyPlayed.length,
+                        itemBuilder: (context, index) {
+                          final video = _recentlyPlayed[index];
+                          return _buildPlayHistoryItem(
+                            context,
+                            video.title,
+                            video.uploader,
+                            video.thumbnail,
+                            video.id,
+                          );
+                        },
+                      ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionWithMoreButton(
+      BuildContext context, String title, VoidCallback onMorePressed) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
           ),
+        ),
+        TextButton(
+          onPressed: onMorePressed,
+          child: const Text('查看更多'),
         ),
       ],
     );
   }
 
-  Widget _buildFavoritesTab() {
-    final bilibiliService = Provider.of<BilibiliService>(context);
-    final favorites = bilibiliService.getFavorites();
+  Widget _buildPlayHistoryItem(
+    BuildContext context,
+    String title,
+    String uploader,
+    String thumbnailUrl,
+    String videoId,
+  ) {
+    return ListTile(
+      leading: Container(
+        width: 50,
+        height: 50,
+        decoration: BoxDecoration(
+          color: Colors.grey[300],
+          image: thumbnailUrl.isNotEmpty
+              ? DecorationImage(
+                  image: NetworkImage(thumbnailUrl),
+                  fit: BoxFit.cover,
+                )
+              : null,
+        ),
+        child: thumbnailUrl.isEmpty
+            ? const Center(child: Icon(Icons.music_note))
+            : null,
+      ),
+      title: Text(title),
+      subtitle: Text(uploader),
+      trailing: IconButton(
+        icon: const Icon(Icons.play_arrow),
+        onPressed: () {
+          _playVideo(
+              context,
+              VideoItem(
+                  id: videoId,
+                  title: title,
+                  uploader: uploader,
+                  thumbnail: thumbnailUrl,
+                  duration: '00:00',
+                  playCount: 0,
+                  publishDate: ''));
+        },
+      ),
+    );
+  }
 
-    if (favorites.isEmpty) {
+  void _playVideo(BuildContext context, VideoItem video) async {
+    try {
+      final bilibiliService =
+          Provider.of<BilibiliService>(context, listen: false);
+      final audioManager =
+          Provider.of<AudioPlayerManager>(context, listen: false);
+
+      // 显示加载中提示
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('正在获取音频信息...')),
+      );
+
+      // 获取音频URL
+      String audioUrl = await bilibiliService.getAudioUrl(video.id);
+
+      if (audioUrl.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('获取音频失败')),
+        );
+        return;
+      }
+
+      // 创建音频项并播放
+      final audioItem = player_models.AudioItem(
+        id: video.id,
+        title: video.title,
+        uploader: video.uploader,
+        thumbnail: video.thumbnail,
+        audioUrl: audioUrl,
+        addedTime: DateTime.now(),
+      );
+
+      audioManager.playAudio(audioItem);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('正在播放: ${video.title}')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('播放失败: $e')),
+      );
+    }
+  }
+
+  void _playDemoAudio(BuildContext context, String title, String uploader) {
+    // 播放示例音频
+    final audioManager =
+        Provider.of<AudioPlayerManager>(context, listen: false);
+
+    // 创建一个模拟的音频项目
+    final demoAudio = player_models.AudioItem(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      title: title,
+      uploader: uploader,
+      thumbnail: 'https://via.placeholder.com/60',
+      audioUrl: 'https://example.com/audio.mp3', // 模拟URL
+      addedTime: DateTime.now(),
+    );
+
+    // 尝试播放
+    try {
+      audioManager.playAudio(demoAudio);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('正在播放: $title')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('播放失败: $e')),
+      );
+    }
+  }
+}
+
+class SearchTabView extends StatefulWidget {
+  const SearchTabView({super.key});
+
+  @override
+  State<SearchTabView> createState() => _SearchTabViewState();
+}
+
+class _SearchTabViewState extends State<SearchTabView> {
+  final TextEditingController _searchController = TextEditingController();
+  bool _isSearching = false;
+  List<VideoItem> _searchResults = [];
+  String _searchQuery = '';
+  bool _isSearchLoading = false;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _performSearch(String query) async {
+    if (query.isEmpty) {
+      setState(() {
+        _searchQuery = '';
+        _searchResults = [];
+        _isSearching = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _searchQuery = query;
+      _isSearchLoading = true;
+      _isSearching = true;
+    });
+
+    try {
+      // 使用Provider获取BilibiliService实例执行搜索
+      final bilibiliService =
+          Provider.of<BilibiliService>(context, listen: false);
+      final results = await bilibiliService.searchVideos(query);
+
+      setState(() {
+        _searchResults = results;
+        _isSearchLoading = false;
+      });
+    } catch (e) {
+      debugPrint('搜索失败: $e');
+      setState(() {
+        _searchResults = [];
+        _isSearchLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 搜索栏
+          SearchBar(
+            controller: _searchController,
+            hintText: '搜索歌曲、视频、UP主',
+            leading: const Icon(Icons.search),
+            trailing: [
+              if (_isSearching)
+                const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else if (_searchController.text.isNotEmpty)
+                IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() {
+                      _searchResults = [];
+                    });
+                  },
+                ),
+            ],
+            onSubmitted: _performSearch,
+          ),
+
+          const SizedBox(height: 16),
+
+          // 搜索结果或热门搜索
+          Expanded(
+            child: _searchResults.isNotEmpty
+                ? _buildSearchResults()
+                : _buildHotSearches(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSearchResults() {
+    return ListView.builder(
+      itemCount: _searchResults.length,
+      itemBuilder: (context, index) {
+        final video = _searchResults[index];
+        return ListTile(
+          leading: Container(
+            width: 50,
+            height: 50,
+            decoration: BoxDecoration(
+              color: Colors.grey[300],
+              image: video.thumbnail.isNotEmpty
+                  ? DecorationImage(
+                      image: NetworkImage(video.thumbnail),
+                      fit: BoxFit.cover,
+                    )
+                  : null,
+            ),
+            child: video.thumbnail.isEmpty
+                ? Center(child: Text('${index + 1}'))
+                : null,
+          ),
+          title: Text(video.title),
+          subtitle: Text('${video.uploader} - ${video.formattedPlayCount}播放'),
+          onTap: () {
+            // 播放该搜索结果
+            _playVideo(context, video);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildHotSearches() {
+    // 获取搜索历史
+    final bilibiliService =
+        Provider.of<BilibiliService>(context, listen: false);
+    final searchHistory = bilibiliService.getSearchHistory();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 历史搜索
+        if (searchHistory.isNotEmpty) ...[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                '搜索历史',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              TextButton(
+                onPressed: () {
+                  bilibiliService.clearSearchHistory();
+                  setState(() {});
+                },
+                child: const Text('清除'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: searchHistory
+                .map((term) => ActionChip(
+                      label: Text(term),
+                      onPressed: () {
+                        _searchController.text = term;
+                        _performSearch(term);
+                      },
+                    ))
+                .toList(),
+          ),
+          const Divider(height: 24),
+        ],
+
+        const Text(
+          '热门搜索',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            '周杰伦',
+            '薛之谦',
+            '华晨宇',
+            '林俊杰',
+            '陈奕迅',
+            '李荣浩',
+            '邓紫棋',
+            '毛不易',
+            '王力宏',
+            '音乐'
+          ]
+              .map((term) => ActionChip(
+                    label: Text(term),
+                    onPressed: () {
+                      _searchController.text = term;
+                      _performSearch(term);
+                    },
+                  ))
+              .toList(),
+        ),
+      ],
+    );
+  }
+
+  void _playVideo(BuildContext context, VideoItem video) async {
+    try {
+      final bilibiliService =
+          Provider.of<BilibiliService>(context, listen: false);
+      final audioManager =
+          Provider.of<AudioPlayerManager>(context, listen: false);
+
+      // 显示加载中提示
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('正在获取音频信息...')),
+      );
+
+      // 获取音频URL
+      String audioUrl = await bilibiliService.getAudioUrl(video.id);
+
+      if (audioUrl.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('获取音频失败')),
+        );
+        return;
+      }
+
+      // 创建音频项并播放
+      final audioItem = player_models.AudioItem(
+        id: video.id,
+        title: video.title,
+        uploader: video.uploader,
+        thumbnail: video.thumbnail,
+        audioUrl: audioUrl,
+        addedTime: DateTime.now(),
+      );
+
+      audioManager.playAudio(audioItem);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('正在播放: ${video.title}')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('播放失败: $e')),
+      );
+    }
+  }
+}
+
+class LibraryTabView extends StatefulWidget {
+  const LibraryTabView({super.key});
+
+  @override
+  State<LibraryTabView> createState() => _LibraryTabViewState();
+}
+
+class _LibraryTabViewState extends State<LibraryTabView> {
+  List<Map<String, dynamic>> _favorites = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFavorites();
+  }
+
+  Future<void> _loadFavorites() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+
+    if (!authService.isLoggedIn) {
+      setState(() {
+        _isLoading = false;
+      });
+      return;
+    }
+
+    // 模拟加载收藏
+    await Future.delayed(const Duration(seconds: 1));
+
+    // 模拟收藏数据
+    final fakeData = List.generate(
+      5,
+      (index) => {
+        'id': 'fav_$index',
+        'title': '收藏项目 ${index + 1}',
+        'uploader': 'UP主名称',
+        'coverUrl': 'https://via.placeholder.com/60',
+      },
+    );
+
+    setState(() {
+      _favorites = fakeData;
+      _isLoading = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final authService = Provider.of<AuthService>(context);
+
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    if (!authService.isLoggedIn) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.favorite_border,
-              size: 64,
-              color: Colors.grey.shade400,
+            const Icon(
+              Icons.library_music,
+              size: 80,
+              color: Colors.grey,
             ),
             const SizedBox(height: 16),
-            Text(
-              '暂无收藏内容',
+            const Text(
+              '登录后即可查看您的收藏',
               style: TextStyle(
                 fontSize: 16,
-                color: Colors.grey.shade600,
+                color: Colors.grey,
               ),
             ),
             const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: _navigateToSearch,
-              icon: const Icon(Icons.search),
-              label: const Text('去搜索感兴趣的内容'),
+            ElevatedButton(
+              onPressed: () {
+                context.push('/login');
+              },
+              child: const Text('去登录'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_favorites.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(
+              Icons.favorite_border,
+              size: 80,
+              color: Colors.grey,
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              '您还没有收藏任何内容',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey,
+              ),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: () {
+                context.go('/'); // 回到首页
+              },
+              child: const Text('去收藏'),
             ),
           ],
         ),
@@ -712,117 +808,244 @@ class _HomePageState extends State<HomePage>
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.all(8),
-      itemCount: favorites.length,
+      padding: const EdgeInsets.all(16),
+      itemCount: _favorites.length,
       itemBuilder: (context, index) {
+        final item = _favorites[index];
         return Dismissible(
-          key: Key(favorites[index].id),
-          direction: DismissDirection.endToStart,
+          key: Key(item['id']),
           background: Container(
+            color: Colors.red,
             alignment: Alignment.centerRight,
             padding: const EdgeInsets.only(right: 16),
-            color: Colors.red,
             child: const Icon(
               Icons.delete,
               color: Colors.white,
             ),
           ),
+          direction: DismissDirection.endToStart,
           onDismissed: (direction) {
-            bilibiliService.removeFromFavorites(favorites[index].id);
-            setState(() {});
+            setState(() {
+              _favorites.removeAt(index);
+            });
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('已从收藏中移除: ${favorites[index].title}'),
+                content: Text('已移除: ${item['title']}'),
                 action: SnackBarAction(
                   label: '撤销',
                   onPressed: () {
-                    bilibiliService.addToFavorites(favorites[index]);
-                    setState(() {});
+                    setState(() {
+                      _favorites.insert(index, item);
+                    });
                   },
                 ),
               ),
             );
           },
-          child: Card(
-            margin: const EdgeInsets.only(bottom: 8),
-            child: InkWell(
-              onTap: () => _navigateToPlayer(favorites[index]),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.network(
-                        favorites[index].thumbnail,
-                        width: 120,
-                        height: 80,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            width: 120,
-                            height: 80,
-                            color: Colors.grey.shade300,
-                            child: const Icon(Icons.error),
-                          );
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            favorites[index].title,
-                            style: Theme.of(context).textTheme.titleSmall,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            favorites[index].uploader,
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              const Icon(
-                                Icons.favorite,
-                                size: 16,
-                                color: Colors.pink,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                '已收藏',
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                              const SizedBox(width: 16),
-                              Icon(
-                                Icons.access_time,
-                                size: 16,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onSurface
-                                    .withOpacity(0.6),
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                favorites[index].duration,
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+          child: ListTile(
+            leading: Container(
+              width: 50,
+              height: 50,
+              color: Colors.grey[300],
+              child: Center(child: Text('${index + 1}')),
             ),
+            title: Text(item['title']),
+            subtitle: Text(item['uploader']),
+            trailing: const Icon(Icons.more_vert),
+            onTap: () {
+              _playFavoriteItem(item);
+            },
           ),
         );
       },
+    );
+  }
+
+  void _playFavoriteItem(Map<String, dynamic> item) {
+    final audioManager =
+        Provider.of<AudioPlayerManager>(context, listen: false);
+
+    // 创建音频项
+    final audio = player_models.AudioItem(
+      id: item['id'],
+      title: item['title'],
+      uploader: item['uploader'],
+      thumbnail: item['coverUrl'],
+      audioUrl: 'https://example.com/audio.mp3', // 模拟URL
+      addedTime: DateTime.now(),
+    );
+
+    // 尝试播放
+    try {
+      audioManager.playAudio(audio);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('正在播放: ${item['title']}')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('播放失败: $e')),
+      );
+    }
+  }
+}
+
+class UserInfoCard extends StatelessWidget {
+  final dynamic user;
+
+  const UserInfoCard({super.key, required this.user});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 30,
+              backgroundColor: Colors.blue,
+              child: Text(
+                user.username.substring(0, 1).toUpperCase(),
+                style: const TextStyle(
+                  fontSize: 24,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    user.username,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    'ID: ${user.id}',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                context.push('/settings');
+              },
+              child: const Text('设置'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class LoginPrompt extends StatelessWidget {
+  const LoginPrompt({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            const Text(
+              '登录B站账号',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              '登录后即可同步您的B站收藏、历史记录和个人信息',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey,
+              ),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: () {
+                context.push('/login');
+              },
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size(200, 40),
+              ),
+              child: const Text('立即登录'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class RecommendCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final String imageUrl;
+  final VoidCallback onTap;
+
+  const RecommendCard({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    required this.imageUrl,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 150,
+        margin: const EdgeInsets.only(right: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 150,
+              height: 100,
+              color: Colors.grey[300],
+              child: const Center(
+                child: Icon(Icons.image, size: 40),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              title,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            Text(
+              subtitle,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -1,60 +1,63 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'app/app.dart';
-import 'package:dio/dio.dart';
-import 'package:crypto/crypto.dart';
-import 'dart:convert';
-import 'package:webview_flutter/webview_flutter.dart';
-import 'package:webview_flutter_android/webview_flutter_android.dart';
-import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
-import 'dart:io';
-import 'package:just_audio/just_audio.dart';
+import 'package:provider/provider.dart';
+import 'core/router/app_router.dart';
+import 'core/services/auth_service.dart';
+import 'core/services/audio_player_manager.dart';
+import 'core/services/bilibili_api.dart';
+import 'core/services/bilibili_service.dart';
 import 'package:just_audio_background/just_audio_background.dart';
-import 'package:audio_service/audio_service.dart';
-import 'dart:async';
 
-Future<void> main() async {
-  // 确保Flutter绑定初始化
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 初始化后台播放
+  // 初始化后台音频服务
   await JustAudioBackground.init(
-    androidNotificationChannelId: 'com.bilibili.music.channel.audio',
+    androidNotificationChannelId: 'com.example.bilibili_music.channel.audio',
     androidNotificationChannelName: 'Bilibili Music',
-    androidNotificationOngoing: false,
-    androidShowNotificationBadge: true,
-    androidNotificationIcon: 'mipmap/ic_launcher',
-    androidStopForegroundOnPause: false,
-    fastForwardInterval: const Duration(seconds: 10),
-    rewindInterval: const Duration(seconds: 10),
-    notificationColor: const Color(0xFF2196F3), // 蓝色
+    androidNotificationOngoing: true,
   );
 
-  // 初始化WebView平台
-  if (WebViewPlatform.instance is AndroidWebViewPlatform) {
-    AndroidWebViewPlatform.registerWith();
-  } else if (WebViewPlatform.instance is WebKitWebViewPlatform) {
-    WebKitWebViewPlatform.registerWith();
-  }
+  // 获取SharedPreferences实例
+  final prefs = await SharedPreferences.getInstance();
 
-  // 初始化SharedPreferences
-  SharedPreferences prefs;
-  try {
-    prefs = await SharedPreferences.getInstance();
-  } catch (e) {
-    debugPrint('初始化SharedPreferences失败: $e');
-    prefs = await _createMockPrefs();
-  }
+  // 初始化服务
+  final bilibiliApi = BilibiliApi(prefs);
+  final authService = AuthService(prefs, bilibiliApi);
+  final bilibiliService = BilibiliService();
+  final audioPlayerManager = AudioPlayerManager();
 
-  // 运行应用，如果 prefs 为空，创建一个模拟实现
-  runApp(BilibiliMusicApp(
-    prefs: prefs,
-  ));
+  // 运行应用
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => authService),
+        Provider(create: (_) => bilibiliService),
+        ChangeNotifierProvider(create: (_) => audioPlayerManager),
+      ],
+      child: MyApp(),
+    ),
+  );
 }
 
-// 创建一个模拟的 SharedPreferences 实现
-Future<SharedPreferences> _createMockPrefs() async {
-  // 设置模拟值
-  SharedPreferences.setMockInitialValues({});
-  return await SharedPreferences.getInstance();
+class MyApp extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp.router(
+      title: 'Bilibili Music',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.pink),
+        useMaterial3: true,
+      ),
+      darkTheme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.pink,
+          brightness: Brightness.dark,
+        ),
+        useMaterial3: true,
+      ),
+      themeMode: ThemeMode.system,
+      routerConfig: AppRouter.router,
+    );
+  }
 }
