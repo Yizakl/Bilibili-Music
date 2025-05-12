@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../../features/home/presentation/pages/home_page.dart';
 import '../../features/settings/presentation/pages/settings_page.dart';
 import '../../features/login/presentation/pages/login_page.dart';
@@ -49,6 +50,18 @@ class AppRouter {
                   audioUrl: homeAudioItem.audioUrl,
                   addedTime: DateTime.now(),
                 );
+              }
+
+              // 如果没有提供音频项，使用当前播放的音频
+              if (playerAudioItem == null) {
+                final audioManager =
+                    Provider.of<AudioPlayerManager>(context, listen: false);
+                playerAudioItem = audioManager.currentAudio;
+              }
+
+              // 如果仍然没有音频项，返回首页
+              if (playerAudioItem == null) {
+                return const HomePage();
               }
 
               return PlayerPage(audioItem: playerAudioItem);

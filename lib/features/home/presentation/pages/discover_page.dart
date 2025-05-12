@@ -14,7 +14,16 @@ class DiscoverPage extends StatefulWidget {
 }
 
 class _DiscoverPageState extends State<DiscoverPage> {
-  final List<String> _categories = ['推荐', '音乐', '舞蹈', '游戏', '知识', '生活', '美食', '动画'];
+  final List<String> _categories = [
+    '推荐',
+    '音乐',
+    '舞蹈',
+    '游戏',
+    '知识',
+    '生活',
+    '美食',
+    '动画'
+  ];
   String _selectedCategory = '推荐';
   List<VideoItem> _videos = [];
   bool _isLoading = true;
@@ -33,7 +42,8 @@ class _DiscoverPageState extends State<DiscoverPage> {
     });
 
     try {
-      final bilibiliService = Provider.of<BilibiliService>(context, listen: false);
+      final bilibiliService =
+          Provider.of<BilibiliService>(context, listen: false);
       List<VideoItem> videos;
 
       // 根据选择的分类加载不同的视频
@@ -72,123 +82,125 @@ class _DiscoverPageState extends State<DiscoverPage> {
       onRefresh: _loadVideos,
       child: CustomScrollView(
         slivers: [
-        // 顶部 AppBar
-        SliverAppBar(
-          floating: true,
-          title: const Text('发现'),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              onPressed: _loadVideos,
-            ),
-            IconButton(
-              icon: const Icon(Icons.person_outline),
-              onPressed: () {
-                // 跳转到设置页面（包含用户信息）
-                DefaultTabController.of(context).animateTo(3);
-              },
-            ),
-          ],
-        ),
-        // 搜索栏
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: SearchBar(
-              hintText: '搜索视频、UP主',
-              leading: const Icon(Icons.search),
-              onTap: () {
-                // 跳转到搜索页面
-                DefaultTabController.of(context).animateTo(2);
-              },
+          // 顶部 AppBar
+          SliverAppBar(
+            floating: true,
+            title: const Text('发现'),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.refresh),
+                onPressed: _loadVideos,
+              ),
+              IconButton(
+                icon: const Icon(Icons.person_outline),
+                onPressed: () {
+                  // 跳转到设置页面（包含用户信息）
+                  DefaultTabController.of(context).animateTo(3);
+                },
+              ),
+            ],
+          ),
+          // 搜索栏
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: SearchBar(
+                hintText: '搜索视频、UP主',
+                leading: const Icon(Icons.search),
+                onTap: () {
+                  // 跳转到搜索页面
+                  DefaultTabController.of(context).animateTo(2);
+                },
+              ),
             ),
           ),
-        ),
-        // 分类标签
-        SliverToBoxAdapter(
-          child: SizedBox(
-            height: 40,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              children: [
-                ..._categories.map((label) => Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: FilterChip(
-                    label: Text(label),
-                    selected: label == _selectedCategory,
-                    onSelected: (selected) {
-                      if (selected) {
-                        setState(() {
-                          _selectedCategory = label;
-                        });
-                        _loadVideos();
-                      }
-                    },
-                  ),
-                )),
-              ],
-            ),
-          ),
-        ),
-
-        // 加载指示器
-        if (_isLoading)
-          const SliverToBoxAdapter(
-            child: Center(
-              child: Padding(
-                padding: EdgeInsets.all(32.0),
-                child: CircularProgressIndicator(),
+          // 分类标签
+          SliverToBoxAdapter(
+            child: SizedBox(
+              height: 40,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                children: [
+                  ..._categories.map((label) => Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: FilterChip(
+                          label: Text(label),
+                          selected: label == _selectedCategory,
+                          onSelected: (selected) {
+                            if (selected) {
+                              setState(() {
+                                _selectedCategory = label;
+                              });
+                              _loadVideos();
+                            }
+                          },
+                        ),
+                      )),
+                ],
               ),
             ),
           ),
 
-        // 错误信息
-        if (_error != null)
-          SliverToBoxAdapter(
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(32.0),
-                child: Column(
-                  children: [
-                    Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-                    const SizedBox(height: 16),
-                    ElevatedButton(
-                      onPressed: _loadVideos,
-                      child: const Text('重试'),
-                    ),
-                  ],
+          // 加载指示器
+          if (_isLoading)
+            const SliverToBoxAdapter(
+              child: Center(
+                child: Padding(
+                  padding: EdgeInsets.all(32.0),
+                  child: CircularProgressIndicator(),
                 ),
               ),
             ),
-          ),
 
-        // 推荐内容网格
-        if (!_isLoading && _error == null)
-          SliverPadding(
-            padding: const EdgeInsets.all(16),
-            sliver: SliverGrid(
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                mainAxisSpacing: 16,
-                crossAxisSpacing: 16,
-                childAspectRatio: 0.8,
-              ),
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  final video = _videos[index];
-                  return VideoCard(
-                    title: video.title,
-                    thumbnail: video.thumbnail,
-                    uploader: video.uploader,
-                    views: video.playCount?.toString() ?? '0',
-                    videoId: video.id,
-                  );
-                },
-                childCount: _videos.length,
+          // 错误信息
+          if (_error != null)
+            SliverToBoxAdapter(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(32.0),
+                  child: Column(
+                    children: [
+                      Text(_error!,
+                          style: TextStyle(
+                              color: Theme.of(context).colorScheme.error)),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: _loadVideos,
+                        child: const Text('重试'),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
-          ),
+
+          // 推荐内容网格
+          if (!_isLoading && _error == null)
+            SliverPadding(
+              padding: const EdgeInsets.all(16),
+              sliver: SliverGrid(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  mainAxisSpacing: 16,
+                  crossAxisSpacing: 16,
+                  childAspectRatio: 0.8,
+                ),
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final video = _videos[index];
+                    return VideoCard(
+                      title: video.title,
+                      thumbnail: video.thumbnail,
+                      uploader: video.uploader,
+                      views: video.playCount?.toString() ?? '0',
+                      videoId: video.id,
+                    );
+                  },
+                  childCount: _videos.length,
+                ),
+              ),
+            ),
         ], // <-- This closing bracket was missing
       ), // <-- This closing parenthesis was missing
     );
@@ -225,7 +237,7 @@ class VideoCard extends StatelessWidget {
           children: [
             // 缩略图
             AspectRatio(
-              aspectRatio: 16/9,
+              aspectRatio: 16 / 9,
               child: Image.network(
                 thumbnail,
                 fit: BoxFit.cover,
@@ -313,17 +325,18 @@ class VideoCard extends StatelessWidget {
           ),
         ),
       );
-      
-      final bilibiliService = Provider.of<BilibiliService>(context, listen: false);
-      
+
+      final bilibiliService =
+          Provider.of<BilibiliService>(context, listen: false);
+
       // 获取音频URL
       final audioUrl = await bilibiliService.getAudioUrl(videoId);
-      
+
       // 关闭加载对话框
       if (context.mounted) {
         Navigator.pop(context);
       }
-      
+
       if (audioUrl.isEmpty) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -332,17 +345,17 @@ class VideoCard extends StatelessWidget {
         }
         return;
       }
-      
+
       // 创建AudioItem
       final audioItem = player_models.AudioItem(
         id: videoId,
         title: title,
         uploader: uploader,
-        thumbnail: thumbnail,
+        thumbnail: thumbnail.startsWith('//') ? 'https:$thumbnail' : thumbnail,
         audioUrl: audioUrl,
         addedTime: DateTime.now(),
       );
-      
+
       if (context.mounted) {
         context.push('/player', extra: {'audio_item': audioItem});
       }

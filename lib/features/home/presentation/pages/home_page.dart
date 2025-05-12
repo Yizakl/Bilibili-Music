@@ -118,9 +118,9 @@ class _HomePageState extends State<HomePage> {
                         ),
                         onPressed: () {
                           if (manager.isPlaying) {
-                            manager.player.pause();
+                            manager.pause();
                           } else {
-                            manager.player.play();
+                            manager.resume();
                           }
                         },
                       ),
@@ -384,7 +384,7 @@ class _HomeTabViewState extends State<HomeTabView> {
         id: video.id,
         title: video.title,
         uploader: video.uploader,
-        thumbnail: video.thumbnail,
+        thumbnail: video.fixedThumbnail,
         audioUrl: audioUrl,
         addedTime: DateTime.now(),
       );
@@ -542,14 +542,14 @@ class _SearchTabViewState extends State<SearchTabView> {
             height: 50,
             decoration: BoxDecoration(
               color: Colors.grey[300],
-              image: video.thumbnail.isNotEmpty
+              image: video.fixedThumbnail.isNotEmpty
                   ? DecorationImage(
-                      image: NetworkImage(video.thumbnail),
+                      image: NetworkImage(video.fixedThumbnail),
                       fit: BoxFit.cover,
                     )
                   : null,
             ),
-            child: video.thumbnail.isEmpty
+            child: video.fixedThumbnail.isEmpty
                 ? Center(child: Text('${index + 1}'))
                 : null,
           ),
@@ -674,7 +674,7 @@ class _SearchTabViewState extends State<SearchTabView> {
         id: video.id,
         title: video.title,
         uploader: video.uploader,
-        thumbnail: video.thumbnail,
+        thumbnail: video.fixedThumbnail,
         audioUrl: audioUrl,
         addedTime: DateTime.now(),
       );
@@ -935,7 +935,7 @@ class _LibraryTabViewState extends State<LibraryTabView> {
         id: video.id,
         title: video.title,
         uploader: video.uploader,
-        thumbnail: video.thumbnail,
+        thumbnail: video.fixedThumbnail,
         audioUrl: audioUrl,
         addedTime: DateTime.now(),
       );

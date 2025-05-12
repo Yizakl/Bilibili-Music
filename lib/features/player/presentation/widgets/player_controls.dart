@@ -51,12 +51,12 @@ class PlayerControls extends StatelessWidget {
                   // 循环按钮
                   IconButton(
                     icon: Icon(
-                      player.isLooping ? Icons.repeat_one : Icons.repeat,
-                      color: player.isLooping
+                      player.isLoopMode ? Icons.repeat_one : Icons.repeat,
+                      color: player.isLoopMode
                           ? Theme.of(context).primaryColor
                           : null,
                     ),
-                    onPressed: player.toggleLoop,
+                    onPressed: player.toggleLoopMode,
                   ),
 
                   // 上一首按钮

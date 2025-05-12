@@ -24,7 +24,7 @@ class VideoListItem extends StatelessWidget {
               id: video.id,
               title: video.title,
               uploader: video.uploader,
-              thumbnail: video.thumbnail,
+              thumbnail: video.fixedThumbnail,
               audioUrl: '', // 这个会在PlayerPage中设置
               addedTime: DateTime.now(),
               playCount: video.playCount,

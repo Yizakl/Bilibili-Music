@@ -14,130 +14,260 @@ import 'package:go_router/go_router.dart';
 import '../widgets/player_controls.dart';
 
 class PlayerPage extends StatefulWidget {
-  final AudioItem? audioItem;
+  final AudioItem audioItem;
 
-  const PlayerPage({super.key, this.audioItem});
+  const PlayerPage({
+    Key? key,
+    required this.audioItem,
+  }) : super(key: key);
 
   @override
   State<PlayerPage> createState() => _PlayerPageState();
 }
 
-class _PlayerPageState extends State<PlayerPage>
-    with SingleTickerProviderStateMixin {
-  String? _errorMessage;
-  bool _isLoading = true;
-  late AudioItem _currentAudioItem;
-  bool _isShuffle = false;
-  bool _isRepeat = false;
-  bool _showLyrics = false;
-  late AnimationController _playPauseController;
-  late AudioPlayerManager _audioPlayerManager;
-  int _visualizerType = 0; // 0: 波形, 1: 柱状图, 2: 实时频谱
-  bool _isPlaying = false;
-  Duration _duration = Duration.zero;
-  Duration _position = Duration.zero;
-  bool _isDownloading = false;
-  bool _isDownloaded = false;
-  bool _isFavorite = false;
-  double _downloadProgress = 0.0;
-  String _downloadStatus = '';
-
-  final List<String> _mockLyrics = [
-    "[00:01.00]这是歌词示例",
-    "[00:05.00]实际歌词将从服务器获取",
-    "[00:10.00]或者通过解析字幕文件生成",
-    "[00:15.00]目前显示的是模拟数据",
-    "[00:20.00]用于展示歌词滚动效果",
-    "[00:25.00]实际开发中可对接相应API",
-    "[00:30.00]感谢您的使用与支持",
-  ];
-
-  // 音量控制
-  double _volume = 1.0;
-  bool _showVolumeSlider = false;
+class _PlayerPageState extends State<PlayerPage> {
+  bool _isDragging = false;
+  double _dragValue = 0.0;
 
   @override
   void initState() {
     super.initState();
-    // 初始化播放/暂停按钮动画控制器
-    _playPauseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 300),
-    );
-
-    // 初始化当前音频项
-    _currentAudioItem = widget.audioItem!;
-
-    // 更新全局播放管理器
-    _audioPlayerManager =
-        Provider.of<AudioPlayerManager>(context, listen: false);
-    _audioPlayerManager.currentAudioNotifier.value = _currentAudioItem;
-
-    _initializePlayer();
-
-    // 播放当前音频
+    // 确保音频播放器已经初始化
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _playAudio();
-      _checkDownloadStatus();
-      _checkFavoriteStatus();
+      final player = context.read<AudioPlayerManager>();
+      player.playAudio(widget.audioItem);
     });
-
-    // 设置监听器
-    _setupListeners();
-  }
-
-  void _setupListeners() {
-    // 监听播放状态变化
-    _audioPlayerManager.player.playingStream.listen((playing) {
-      if (mounted) {
-        setState(() {
-          _isPlaying = playing;
-        });
-      }
-    });
-
-    // 监听播放位置变化
-    _audioPlayerManager.player.positionStream.listen((position) {
-      if (mounted) {
-        setState(() {
-          _position = position;
-        });
-      }
-    });
-
-    // 监听音频总时长变化
-    _audioPlayerManager.player.durationStream.listen((duration) {
-      if (mounted && duration != null) {
-        setState(() {
-          _duration = duration;
-        });
-      }
-    });
-
-    // 监听当前音频变化
-    _audioPlayerManager.currentAudioNotifier.addListener(() {
-      if (mounted && _audioPlayerManager.currentAudioNotifier.value != null) {
-        setState(() {
-          _currentAudioItem = _audioPlayerManager.currentAudioNotifier.value!;
-        });
-      }
-    });
-  }
-
-  void _initializePlayer() {
-    final audioManager =
-        Provider.of<AudioPlayerManager>(context, listen: false);
-    if (widget.audioItem != null &&
-        widget.audioItem?.id != audioManager.currentAudio?.id) {
-      audioManager.playAudio(widget.audioItem!);
-    }
   }
 
   @override
-  void dispose() {
-    // 不再在这里dispose音频播放器，让它继续在后台播放
-    _playPauseController.dispose();
-    super.dispose();
+  Widget build(BuildContext context) {
+    final player = context.watch<AudioPlayerManager>();
+    final currentAudio = player.currentAudio;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('正在播放'),
+        centerTitle: true,
+      ),
+      body: Column(
+        children: [
+          // 封面图片
+          Expanded(
+            flex: 3,
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.2),
+                        blurRadius: 8,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(
+                      currentAudio?.fixedThumbnail ??
+                          widget.audioItem.fixedThumbnail,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          color: Colors.grey[300],
+                          child: const Icon(
+                            Icons.music_note,
+                            size: 64,
+                            color: Colors.grey,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // 歌曲信息
+          Expanded(
+            flex: 2,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    currentAudio?.title ?? widget.audioItem.title,
+                    style: Theme.of(context).textTheme.titleLarge,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    currentAudio?.uploader ?? widget.audioItem.uploader,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          color: Colors.grey[600],
+                        ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // 进度条
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(
+              children: [
+                // 进度条
+                SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 2,
+                    thumbShape: const RoundSliderThumbShape(
+                      enabledThumbRadius: 6,
+                    ),
+                    overlayShape: const RoundSliderOverlayShape(
+                      overlayRadius: 12,
+                    ),
+                  ),
+                  child: Slider(
+                    value: _isDragging
+                        ? _dragValue
+                        : player.position.inMilliseconds.toDouble(),
+                    max: player.duration.inMilliseconds.toDouble(),
+                    onChanged: (value) {
+                      setState(() {
+                        _isDragging = true;
+                        _dragValue = value;
+                      });
+                    },
+                    onChangeEnd: (value) {
+                      setState(() {
+                        _isDragging = false;
+                      });
+                      player.seekTo(Duration(milliseconds: value.toInt()));
+                    },
+                  ),
+                ),
+
+                // 时间显示
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        _formatDuration(player.position),
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 12,
+                        ),
+                      ),
+                      Text(
+                        _formatDuration(player.duration),
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // 控制按钮
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 24),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                // 随机播放
+                IconButton(
+                  icon: Icon(
+                    Icons.shuffle,
+                    color: player.isShuffleMode
+                        ? Theme.of(context).primaryColor
+                        : Colors.grey,
+                  ),
+                  onPressed: () => player.toggleShuffleMode(),
+                ),
+
+                // 上一首
+                IconButton(
+                  icon: const Icon(Icons.skip_previous, size: 32),
+                  onPressed: () => player.playPrevious(),
+                ),
+
+                // 播放/暂停
+                Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Theme.of(context).primaryColor,
+                  ),
+                  child: IconButton(
+                    icon: Icon(
+                      player.isPlaying ? Icons.pause : Icons.play_arrow,
+                      color: Colors.white,
+                      size: 32,
+                    ),
+                    onPressed: () {
+                      if (player.isPlaying) {
+                        player.pause();
+                      } else {
+                        player.resume();
+                      }
+                    },
+                  ),
+                ),
+
+                // 下一首
+                IconButton(
+                  icon: const Icon(Icons.skip_next, size: 32),
+                  onPressed: () => player.playNext(),
+                ),
+
+                // 循环播放
+                IconButton(
+                  icon: Icon(
+                    Icons.repeat,
+                    color: player.isLoopMode
+                        ? Theme.of(context).primaryColor
+                        : Colors.grey,
+                  ),
+                  onPressed: () => player.toggleLoopMode(),
+                ),
+              ],
+            ),
+          ),
+
+          // 音量控制
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            child: Row(
+              children: [
+                const Icon(Icons.volume_down, size: 20),
+                Expanded(
+                  child: Slider(
+                    value: player.volume,
+                    onChanged: (value) => player.setVolume(value),
+                  ),
+                ),
+                const Icon(Icons.volume_up, size: 20),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   String _formatDuration(Duration duration) {
@@ -145,281 +275,5 @@ class _PlayerPageState extends State<PlayerPage>
     final minutes = twoDigits(duration.inMinutes.remainder(60));
     final seconds = twoDigits(duration.inSeconds.remainder(60));
     return '$minutes:$seconds';
-  }
-
-  String _formatPlayCount(int count) {
-    if (count >= 10000) {
-      return '${(count / 10000).toStringAsFixed(1)}万播放';
-    } else if (count >= 1000) {
-      return '${(count / 1000).toStringAsFixed(1)}千播放';
-    } else {
-      return '$count 播放';
-    }
-  }
-
-  void _togglePlayPause() {
-    if (_isPlaying) {
-      _audioPlayerManager.pause();
-    } else {
-      _audioPlayerManager.playAudio(_currentAudioItem);
-    }
-  }
-
-  void _toggleRepeat() {
-    setState(() {
-      _isRepeat = !_isRepeat;
-    });
-
-    if (_isRepeat) {
-      _audioPlayerManager.player.setLoopMode(LoopMode.one);
-    } else {
-      _audioPlayerManager.player.setLoopMode(LoopMode.off);
-    }
-  }
-
-  void _toggleShuffle() {
-    setState(() {
-      _isShuffle = !_isShuffle;
-    });
-    // 实际应用中，这里应当处理播放列表随机逻辑
-  }
-
-  void _toggleLyrics() {
-    setState(() {
-      _showLyrics = !_showLyrics;
-    });
-  }
-
-  void _setVolume(double value) {
-    setState(() {
-      _volume = value;
-    });
-    _audioPlayerManager.player.setVolume(value);
-  }
-
-  Future<void> _playAudio() async {
-    await _audioPlayerManager.playAudio(widget.audioItem!);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Consumer<AudioPlayerManager>(
-      builder: (context, player, child) {
-        final currentVideo = player.currentVideo;
-        if (currentVideo == null) {
-          return const Center(
-            child: Text('没有正在播放的视频'),
-          );
-        }
-
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text('正在播放'),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.playlist_play),
-                onPressed: () {
-                  // TODO: 显示播放列表
-                },
-              ),
-            ],
-          ),
-          body: Column(
-            children: [
-              // 封面图片
-              Expanded(
-                child: Center(
-                  child: AspectRatio(
-                    aspectRatio: 1,
-                    child: Container(
-                      margin: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(8),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.2),
-                            blurRadius: 8,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.network(
-                          currentVideo.fixedThumbnail,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Container(
-                              color: Colors.grey[300],
-                              child: const Icon(
-                                Icons.music_note,
-                                size: 64,
-                                color: Colors.grey,
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-
-              // 视频信息
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: Column(
-                  children: [
-                    Text(
-                      currentVideo.title,
-                      style: Theme.of(context).textTheme.titleLarge,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      currentVideo.uploader,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Colors.grey[600],
-                          ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 32),
-
-              // 播放控制
-              const PlayerControls(),
-
-              const SizedBox(height: 32),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  // 检查下载状态
-  Future<void> _checkDownloadStatus() async {
-    final isDownloaded =
-        await _audioPlayerManager.isAudioDownloaded(_currentAudioItem.id);
-    if (mounted) {
-      setState(() {
-        _isDownloaded = isDownloaded;
-      });
-    }
-  }
-
-  // 检查收藏状态
-  void _checkFavoriteStatus() {
-    final isFavorite = _audioPlayerManager.isFavorite(_currentAudioItem.id);
-    if (mounted) {
-      setState(() {
-        _isFavorite = isFavorite;
-      });
-    }
-  }
-
-  // 下载当前音频
-  Future<void> _downloadCurrentAudio() async {
-    if (_isDownloaded) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('音频已下载')),
-      );
-      return;
-    }
-
-    if (_isDownloading) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('正在下载中...')),
-      );
-      return;
-    }
-
-    setState(() {
-      _isDownloading = true;
-    });
-
-    // 获取下载状态通知器
-    final progressNotifier =
-        _audioPlayerManager.getDownloadProgressNotifier(_currentAudioItem.id);
-    final statusNotifier =
-        _audioPlayerManager.getDownloadStatusNotifier(_currentAudioItem.id);
-
-    if (progressNotifier != null) {
-      progressNotifier.addListener(() {
-        if (mounted) {
-          setState(() {
-            _downloadProgress = progressNotifier.value;
-          });
-        }
-      });
-    }
-
-    if (statusNotifier != null) {
-      statusNotifier.addListener(() {
-        if (mounted) {
-          setState(() {
-            _downloadStatus = statusNotifier.value;
-          });
-        }
-      });
-    }
-
-    final success = await _audioPlayerManager.downloadAudio(_currentAudioItem);
-
-    if (mounted) {
-      setState(() {
-        _isDownloading = false;
-        _isDownloaded = success;
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(success ? '下载完成' : '下载失败')),
-      );
-    }
-  }
-
-  // 切换收藏状态
-  Future<void> _toggleFavorite() async {
-    if (_isFavorite) {
-      await _audioPlayerManager.removeFromFavorites(_currentAudioItem.id);
-    } else {
-      await _audioPlayerManager.addToFavorites(_currentAudioItem);
-    }
-
-    if (mounted) {
-      setState(() {
-        _isFavorite = !_isFavorite;
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_isFavorite ? '已加入收藏' : '已移出收藏')),
-      );
-    }
-  }
-
-  // 切换随机播放模式
-  void _toggleShuffleMode() {
-    _audioPlayerManager.toggleShuffleMode();
-    setState(() {
-      _isShuffle = _audioPlayerManager.isShuffleMode;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(_isShuffle ? '随机播放已开启' : '随机播放已关闭')),
-    );
-  }
-
-  // 播放上一首
-  void _playPrevious() {
-    _audioPlayerManager.playPreviousAudio();
-  }
-
-  // 播放下一首
-  void _playNext() {
-    _audioPlayerManager.playNextAudio();
   }
 }

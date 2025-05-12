@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../features/home/presentation/pages/home_page.dart';
 import '../features/search/presentation/pages/search_page.dart';
 import '../features/favorites/presentation/pages/favorites_page.dart';
 import '../features/auth/presentation/pages/login_page.dart';
 import '../features/player/presentation/pages/player_page.dart';
+import '../core/services/audio_player_manager.dart';
 
 final router = GoRouter(
   initialLocation: '/',
@@ -69,7 +71,27 @@ final router = GoRouter(
     ),
     GoRoute(
       path: '/player',
-      builder: (context, state) => const PlayerPage(),
+      builder: (context, state) {
+        // 获取传递的参数
+        final extra = state.extra as Map<String, dynamic>?;
+        final audioItem = extra?['audio_item'];
+
+        if (audioItem != null) {
+          return PlayerPage(audioItem: audioItem);
+        }
+
+        // 如果没有传递音频项，则使用当前正在播放的音频
+        final audioManager =
+            Provider.of<AudioPlayerManager>(context, listen: false);
+        final currentAudio = audioManager.currentAudio;
+
+        // 如果没有正在播放的音频，则回到首页
+        if (currentAudio == null) {
+          return const HomePage();
+        }
+
+        return PlayerPage(audioItem: currentAudio);
+      },
     ),
   ],
 );

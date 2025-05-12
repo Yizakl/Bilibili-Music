@@ -176,7 +176,7 @@ class _SearchPageState extends State<SearchPage>
         id: video.id,
         title: video.title,
         uploader: video.uploader,
-        thumbnail: video.thumbnail,
+        thumbnail: video.fixedThumbnail,
         audioUrl: audioUrl,
         addedTime: DateTime.now(),
         playCount: video.playCount,
