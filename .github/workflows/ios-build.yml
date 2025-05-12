@@ -23,14 +23,22 @@ jobs:
     - name: Install dependencies
       run: flutter pub get
 
+    - name: Setup keychain
+      run: |
+        security create-keychain -p "" build.keychain
+        security default-keychain -s build.keychain
+        security unlock-keychain -p "" build.keychain
+        security set-keychain-settings build.keychain
+        security list-keychains -d user -s build.keychain
+
     - name: Build iOS app
       run: |
-        flutter build ios --no-codesign --release
+        flutter build ios --no-codesign --release --no-pub
 
     - name: Create IPA
       run: |
         cd build/ios/iphoneos
-        mkdir Payload
+        mkdir -p Payload
         cp -r Runner.app Payload/
         zip -r Runner.ipa Payload
         cd ../../../
@@ -39,4 +47,9 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
         name: ios-app
-        path: build/ios/iphoneos/Runner.ipa 
+        path: build/ios/iphoneos/Runner.ipa
+
+    - name: Cleanup keychain
+      if: always()
+      run: |
+        security delete-keychain build.keychain 
