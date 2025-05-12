@@ -11,6 +11,7 @@ import '../widgets/audio_visualizer.dart';
 import '../widgets/wave_visualizer.dart';
 import '../widgets/real_audio_visualizer.dart';
 import 'package:go_router/go_router.dart';
+import '../widgets/player_controls.dart';
 
 class PlayerPage extends StatefulWidget {
   final AudioItem? audioItem;
@@ -202,213 +203,101 @@ class _PlayerPageState extends State<PlayerPage>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.pop(),
-        ),
-        title: const Text('正在播放'),
-        centerTitle: true,
-      ),
-      extendBodyBehindAppBar: true,
-      body: Consumer<AudioPlayerManager>(
-        builder: (context, audioManager, _) {
-          final currentAudio = audioManager.currentAudio;
+    return Consumer<AudioPlayerManager>(
+      builder: (context, player, child) {
+        final currentVideo = player.currentVideo;
+        if (currentVideo == null) {
+          return const Center(
+            child: Text('没有正在播放的视频'),
+          );
+        }
 
-          if (currentAudio == null) {
-            return const Center(
-              child: Text('没有正在播放的内容'),
-            );
-          }
-
-          return Column(
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('正在播放'),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.playlist_play),
+                onPressed: () {
+                  // TODO: 显示播放列表
+                },
+              ),
+            ],
+          ),
+          body: Column(
             children: [
-              // 顶部背景区域（模糊的封面）
-              Container(
-                height: MediaQuery.of(context).size.height * 0.4,
-                width: double.infinity,
-                color: Colors.grey.shade300,
-                child: Stack(
-                  children: [
-                    // 背景模糊
-                    Container(
-                      color: Colors.black.withOpacity(0.5),
-                    ),
-                    // 居中的封面
-                    Center(
-                      child: Container(
-                        width: 200,
-                        height: 200,
-                        decoration: BoxDecoration(
-                          color: Colors.grey,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.3),
-                              blurRadius: 20,
-                              offset: const Offset(0, 10),
-                            ),
-                          ],
-                        ),
-                        child: const Center(
-                          child: Icon(
-                            Icons.music_note,
-                            size: 80,
-                            color: Colors.white54,
+              // 封面图片
+              Expanded(
+                child: Center(
+                  child: AspectRatio(
+                    aspectRatio: 1,
+                    child: Container(
+                      margin: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.2),
+                            blurRadius: 8,
+                            offset: const Offset(0, 4),
                           ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          currentVideo.fixedThumbnail,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              color: Colors.grey[300],
+                              child: const Icon(
+                                Icons.music_note,
+                                size: 64,
+                                color: Colors.grey,
+                              ),
+                            );
+                          },
                         ),
                       ),
+                    ),
+                  ),
+                ),
+              ),
+
+              // 视频信息
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                child: Column(
+                  children: [
+                    Text(
+                      currentVideo.title,
+                      style: Theme.of(context).textTheme.titleLarge,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      currentVideo.uploader,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Colors.grey[600],
+                          ),
                     ),
                   ],
                 ),
               ),
 
-              // 播放信息区域
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // 标题和UP主
-                      Text(
-                        currentAudio.title,
-                        style: const TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        currentAudio.uploader,
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.grey[600],
-                        ),
-                      ),
+              const SizedBox(height: 32),
 
-                      const SizedBox(height: 40),
+              // 播放控制
+              const PlayerControls(),
 
-                      // 进度条
-                      SliderTheme(
-                        data: SliderTheme.of(context).copyWith(
-                          trackHeight: 2,
-                          thumbShape: const RoundSliderThumbShape(
-                            enabledThumbRadius: 6,
-                          ),
-                          overlayShape: const RoundSliderOverlayShape(
-                            overlayRadius: 12,
-                          ),
-                        ),
-                        child: Slider(
-                          value: audioManager.position.inSeconds.toDouble(),
-                          max: audioManager.duration.inSeconds > 0
-                              ? audioManager.duration.inSeconds.toDouble()
-                              : 180, // 默认3分钟
-                          onChanged: (value) {
-                            audioManager.seek(Duration(seconds: value.toInt()));
-                          },
-                        ),
-                      ),
-
-                      // 时间显示
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(_formatDuration(audioManager.position)),
-                            Text(
-                              audioManager.duration.inSeconds > 0
-                                  ? _formatDuration(audioManager.duration)
-                                  : '03:00',
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 32),
-
-                      // 控制按钮
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.skip_previous, size: 32),
-                            onPressed: () {
-                              // 上一首
-                            },
-                          ),
-                          IconButton(
-                            icon: Icon(
-                              audioManager.isPlaying
-                                  ? Icons.pause_circle_filled
-                                  : Icons.play_circle_filled,
-                              size: 64,
-                            ),
-                            onPressed: () {
-                              if (audioManager.isPlaying) {
-                                audioManager.player.pause();
-                              } else {
-                                audioManager.player.play();
-                              }
-                            },
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.skip_next, size: 32),
-                            onPressed: () {
-                              // 下一首
-                            },
-                          ),
-                        ],
-                      ),
-
-                      const Spacer(),
-
-                      // 底部操作栏
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          _buildActionButton(Icons.repeat, '循环'),
-                          _buildActionButton(Icons.favorite_border, '收藏'),
-                          _buildActionButton(Icons.download_outlined, '下载'),
-                          _buildActionButton(Icons.share_outlined, '分享'),
-                        ],
-                      ),
-
-                      const SizedBox(height: 20),
-                    ],
-                  ),
-                ),
-              ),
+              const SizedBox(height: 32),
             ],
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildActionButton(IconData icon, String label) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconButton(
-          icon: Icon(icon),
-          onPressed: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('$label 功能开发中')),
-            );
-          },
-        ),
-        Text(
-          label,
-          style: const TextStyle(fontSize: 12),
-        ),
-      ],
+          ),
+        );
+      },
     );
   }
 

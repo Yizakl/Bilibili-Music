@@ -35,7 +35,7 @@ class MiniPlayer extends StatelessWidget {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(4),
                   image: DecorationImage(
-                    image: NetworkImage(currentAudio.thumbnail),
+                    image: NetworkImage(currentAudio.fixedThumbnail),
                     fit: BoxFit.cover,
                   ),
                 ),

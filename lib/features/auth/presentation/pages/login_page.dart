@@ -16,7 +16,7 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage>
     with SingleTickerProviderStateMixin {
-  final _bilibiliService = BilibiliService();
+  late final BilibiliService _bilibiliService;
   final _sessdataController = TextEditingController();
   final _biliJctController = TextEditingController();
   final _dedeUserIDController = TextEditingController();
@@ -32,7 +32,13 @@ class _LoginPageState extends State<LoginPage>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _initBilibiliService();
     _loadSavedCookies();
+  }
+
+  Future<void> _initBilibiliService() async {
+    final prefs = await SharedPreferences.getInstance();
+    _bilibiliService = BilibiliService(prefs);
   }
 
   @override

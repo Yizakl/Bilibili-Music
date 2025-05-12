@@ -6,6 +6,7 @@ import '../../../../core/services/audio_player_manager.dart';
 import '../../../../core/services/bilibili_service.dart';
 import '../../../../features/player/models/audio_item.dart' as player_models;
 import '../../../../core/models/video_item.dart';
+import '../../../../core/services/favorites_service.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -346,6 +347,7 @@ class _HomeTabViewState extends State<HomeTabView> {
                   id: videoId,
                   title: title,
                   uploader: uploader,
+                  uploaderId: '',
                   thumbnail: thumbnailUrl,
                   duration: '00:00',
                   playCount: 0,
@@ -698,7 +700,6 @@ class LibraryTabView extends StatefulWidget {
 }
 
 class _LibraryTabViewState extends State<LibraryTabView> {
-  List<Map<String, dynamic>> _favorites = [];
   bool _isLoading = true;
 
   @override
@@ -708,38 +709,29 @@ class _LibraryTabViewState extends State<LibraryTabView> {
   }
 
   Future<void> _loadFavorites() async {
-    final authService = Provider.of<AuthService>(context, listen: false);
-
-    if (!authService.isLoggedIn) {
-      setState(() {
-        _isLoading = false;
-      });
-      return;
+    try {
+      final favoritesService =
+          Provider.of<FavoritesService>(context, listen: false);
+      await favoritesService.loadFavorites(); // 确保加载收藏数据
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('加载收藏失败: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
-
-    // 模拟加载收藏
-    await Future.delayed(const Duration(seconds: 1));
-
-    // 模拟收藏数据
-    final fakeData = List.generate(
-      5,
-      (index) => {
-        'id': 'fav_$index',
-        'title': '收藏项目 ${index + 1}',
-        'uploader': 'UP主名称',
-        'coverUrl': 'https://via.placeholder.com/60',
-      },
-    );
-
-    setState(() {
-      _favorites = fakeData;
-      _isLoading = false;
-    });
   }
 
   @override
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
+    final favoritesService = Provider.of<FavoritesService>(context);
 
     if (_isLoading) {
       return const Center(
@@ -777,7 +769,9 @@ class _LibraryTabViewState extends State<LibraryTabView> {
       );
     }
 
-    if (_favorites.isEmpty) {
+    final favorites = favoritesService.favorites;
+
+    if (favorites.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -807,79 +801,149 @@ class _LibraryTabViewState extends State<LibraryTabView> {
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _favorites.length,
-      itemBuilder: (context, index) {
-        final item = _favorites[index];
-        return Dismissible(
-          key: Key(item['id']),
-          background: Container(
-            color: Colors.red,
-            alignment: Alignment.centerRight,
-            padding: const EdgeInsets.only(right: 16),
-            child: const Icon(
-              Icons.delete,
-              color: Colors.white,
+    return RefreshIndicator(
+      onRefresh: _loadFavorites,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: favorites.length,
+        itemBuilder: (context, index) {
+          final video = favorites[index];
+          return Dismissible(
+            key: Key(video.id),
+            background: Container(
+              color: Colors.red,
+              alignment: Alignment.centerRight,
+              padding: const EdgeInsets.only(right: 16),
+              child: const Icon(
+                Icons.delete,
+                color: Colors.white,
+              ),
             ),
-          ),
-          direction: DismissDirection.endToStart,
-          onDismissed: (direction) {
-            setState(() {
-              _favorites.removeAt(index);
-            });
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('已移除: ${item['title']}'),
-                action: SnackBarAction(
-                  label: '撤销',
-                  onPressed: () {
-                    setState(() {
-                      _favorites.insert(index, item);
-                    });
+            direction: DismissDirection.endToStart,
+            onDismissed: (direction) async {
+              try {
+                await favoritesService.removeFavorite(video.id);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('已移除: ${video.title}'),
+                      action: SnackBarAction(
+                        label: '撤销',
+                        onPressed: () async {
+                          await favoritesService.addFavorite(video);
+                        },
+                      ),
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('移除失败: $e')),
+                  );
+                }
+              }
+            },
+            child: ListTile(
+              leading: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.network(
+                  video.fixedThumbnail,
+                  width: 50,
+                  height: 50,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      width: 50,
+                      height: 50,
+                      color: Colors.grey[300],
+                      child: const Icon(Icons.error_outline),
+                    );
                   },
                 ),
               ),
-            );
-          },
-          child: ListTile(
-            leading: Container(
-              width: 50,
-              height: 50,
-              color: Colors.grey[300],
-              child: Center(child: Text('${index + 1}')),
+              title: Text(
+                video.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: Text(
+                '${video.uploader} · ${video.formattedPlayCount}播放',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.favorite, color: Colors.red),
+                    onPressed: () async {
+                      try {
+                        await favoritesService.removeFavorite(video.id);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('已取消收藏')),
+                          );
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('取消收藏失败: $e')),
+                          );
+                        }
+                      }
+                    },
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.play_arrow),
+                    onPressed: () => _playVideo(context, video),
+                  ),
+                ],
+              ),
+              onTap: () => _playVideo(context, video),
             ),
-            title: Text(item['title']),
-            subtitle: Text(item['uploader']),
-            trailing: const Icon(Icons.more_vert),
-            onTap: () {
-              _playFavoriteItem(item);
-            },
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 
-  void _playFavoriteItem(Map<String, dynamic> item) {
-    final audioManager =
-        Provider.of<AudioPlayerManager>(context, listen: false);
-
-    // 创建音频项
-    final audio = player_models.AudioItem(
-      id: item['id'],
-      title: item['title'],
-      uploader: item['uploader'],
-      thumbnail: item['coverUrl'],
-      audioUrl: 'https://example.com/audio.mp3', // 模拟URL
-      addedTime: DateTime.now(),
-    );
-
-    // 尝试播放
+  void _playVideo(BuildContext context, VideoItem video) async {
     try {
-      audioManager.playAudio(audio);
+      final bilibiliService =
+          Provider.of<BilibiliService>(context, listen: false);
+      final audioManager =
+          Provider.of<AudioPlayerManager>(context, listen: false);
+
+      // 显示加载中提示
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('正在播放: ${item['title']}')),
+        const SnackBar(content: Text('正在获取音频信息...')),
+      );
+
+      // 获取音频URL
+      String audioUrl = await bilibiliService.getAudioUrl(video.id);
+
+      if (audioUrl.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('获取音频失败')),
+        );
+        return;
+      }
+
+      // 创建音频项并播放
+      final audioItem = player_models.AudioItem(
+        id: video.id,
+        title: video.title,
+        uploader: video.uploader,
+        thumbnail: video.thumbnail,
+        audioUrl: audioUrl,
+        addedTime: DateTime.now(),
+      );
+
+      audioManager.playAudio(audioItem);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('正在播放: ${video.title}')),
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(

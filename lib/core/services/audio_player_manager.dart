@@ -11,9 +11,10 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import '../models/video_item.dart';
 
 class AudioPlayerManager extends ChangeNotifier {
-  final AudioPlayer player = AudioPlayer();
+  final AudioPlayer _audioPlayer = AudioPlayer();
   AudioItem? _currentAudio;
   bool _isPlaying = false;
   Duration _position = Duration.zero;
@@ -38,45 +39,47 @@ class AudioPlayerManager extends ChangeNotifier {
   final ValueNotifier<AudioItem?> currentAudioNotifier =
       ValueNotifier<AudioItem?>(null);
 
+  VideoItem? _currentVideo;
+  double _volume = 1.0;
+  double _speed = 1.0;
+  bool _isLooping = false;
+  bool _isShuffling = false;
+
   AudioPlayerManager() {
-    _init();
+    _initAudioPlayer();
     _loadFavorites();
   }
 
-  void _init() {
-    // 设置监听器
-    player.positionStream.listen((position) {
+  void _initAudioPlayer() {
+    // 确保在主线程上初始化
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _audioPlayer.playerStateStream.listen((state) {
+        _isPlaying = state.playing;
+        notifyListeners();
+      });
+
+      _audioPlayer.positionStream.listen((position) {
       _position = position;
       notifyListeners();
     });
 
-    player.durationStream.listen((duration) {
+      _audioPlayer.durationStream.listen((duration) {
       if (duration != null) {
         _duration = duration;
         notifyListeners();
       }
     });
 
-    player.playerStateStream.listen((playerState) {
-      _isPlaying = playerState.playing;
-      debugPrint('播放状态改变: ${playerState.playing}');
-      notifyListeners();
-    });
-
-    // 监听处理状态变化
-    player.processingStateStream.listen((state) {
+      _audioPlayer.processingStateStream.listen((state) {
       debugPrint('处理状态改变: $state');
       if (state == ProcessingState.completed) {
-        playNextAudio();
-      }
+          if (_isLooping) {
+            _audioPlayer.seek(Duration.zero);
+            _audioPlayer.play();
+          }
+        }
+      });
     });
-
-    // 初始化播放器但不尝试加载任何音频
-    try {
-      player.setVolume(0.8);
-    } catch (e) {
-      debugPrint('初始化播放器失败: $e');
-    }
   }
 
   AudioItem? get currentAudio => _currentAudio;
@@ -86,6 +89,15 @@ class AudioPlayerManager extends ChangeNotifier {
   List<AudioItem> get playlist => _playlist;
   List<AudioItem> get favorites => _favorites;
   bool get isShuffleMode => _isShuffleMode;
+  VideoItem? get currentVideo => _currentVideo;
+  double get volume => _volume;
+  double get speed => _speed;
+  bool get isLooping => _isLooping;
+  bool get isShuffling => _isShuffling;
+  double get progress => _duration.inMilliseconds > 0
+      ? _position.inMilliseconds / _duration.inMilliseconds
+      : 0.0;
+  AudioPlayer get player => _audioPlayer;
 
   // 从本地存储加载收藏夹
   Future<void> _loadFavorites() async {
@@ -187,10 +199,12 @@ class AudioPlayerManager extends ChangeNotifier {
   // 播放新音频
   Future<void> playAudio(AudioItem audioItem) async {
     try {
+      // 确保在主线程上执行
+      await Future.microtask(() async {
       // 如果已经在播放这首歌，就不重新加载了
       if (_currentAudio?.id == audioItem.id) {
         if (!_isPlaying) {
-          await player.play();
+            await _audioPlayer.play();
         }
         return;
       }
@@ -207,7 +221,7 @@ class AudioPlayerManager extends ChangeNotifier {
       }
 
       // 停止当前播放
-      await player.stop();
+        await _audioPlayer.stop();
 
       // 首先检查是否有下载的本地文件
       final localFilePath = await getLocalAudioPath(audioItem.id);
@@ -223,10 +237,10 @@ class AudioPlayerManager extends ChangeNotifier {
               id: audioItem.id,
               title: audioItem.title,
               artist: audioItem.uploader,
-              artUri: _safeImageUri(audioItem.thumbnail),
+                artUri: _safeImageUri(audioItem.thumbnail),
             ),
           );
-          await player.setAudioSource(audioSource);
+            await _audioPlayer.setAudioSource(audioSource);
         } catch (e) {
           debugPrint('设置本地音频源失败: $e');
           // 回退到在线播放
@@ -238,10 +252,11 @@ class AudioPlayerManager extends ChangeNotifier {
       }
 
       // 开始播放
-      await player.play();
+        await _audioPlayer.play();
       _isPlaying = true;
       notifyListeners();
       debugPrint('音频播放成功');
+      });
     } catch (e) {
       debugPrint('播放音频失败: $e');
       _isPlaying = false;
@@ -274,7 +289,7 @@ class AudioPlayerManager extends ChangeNotifier {
           ),
         );
 
-        await player.setAudioSource(audioSource);
+        await _audioPlayer.setAudioSource(audioSource);
         debugPrint('解析API音频源设置成功');
         return;
       }
@@ -304,7 +319,7 @@ class AudioPlayerManager extends ChangeNotifier {
           },
         );
 
-        await player.setAudioSource(audioSource);
+        await _audioPlayer.setAudioSource(audioSource);
         debugPrint('B站音频源设置成功');
         return;
       }
@@ -321,7 +336,7 @@ class AudioPlayerManager extends ChangeNotifier {
         ),
       );
 
-      await player.setAudioSource(audioSource);
+      await _audioPlayer.setAudioSource(audioSource);
       debugPrint('标准音频源设置成功');
     } catch (e) {
       debugPrint('设置音频URL失败: $e');
@@ -329,7 +344,7 @@ class AudioPlayerManager extends ChangeNotifier {
       try {
         // 如果标准方式失败，尝试不同的方法
         debugPrint('尝试备用方法设置音频URL');
-        await player
+        await _audioPlayer
             .setUrl(audioItem.audioUrl, preload: false)
             .timeout(const Duration(seconds: 10));
         debugPrint('使用备用方法设置音频URL成功');
@@ -368,7 +383,7 @@ class AudioPlayerManager extends ChangeNotifier {
   // 暂停播放
   Future<void> pause() async {
     try {
-      await player.pause();
+      await _audioPlayer.pause();
       _isPlaying = false;
       notifyListeners();
       debugPrint('音频已暂停');
@@ -381,7 +396,7 @@ class AudioPlayerManager extends ChangeNotifier {
   Future<void> resume() async {
     try {
       if (_currentAudio != null) {
-        await player.play();
+        await _audioPlayer.play();
         _isPlaying = true;
         notifyListeners();
         debugPrint('音频已恢复播放');
@@ -394,7 +409,7 @@ class AudioPlayerManager extends ChangeNotifier {
   // 停止播放
   Future<void> stop() async {
     try {
-      await player.stop();
+      await _audioPlayer.stop();
       _isPlaying = false;
       notifyListeners();
       debugPrint('音频已停止');
@@ -561,7 +576,7 @@ class AudioPlayerManager extends ChangeNotifier {
   void dispose() {
     _playbackStateSubscription?.cancel();
     _processingStateSubscription?.cancel();
-    player.dispose();
+    _audioPlayer.dispose();
     currentAudioNotifier.dispose();
 
     // 清理下载进度通知器
@@ -577,7 +592,7 @@ class AudioPlayerManager extends ChangeNotifier {
   }
 
   Future<void> seek(Duration position) async {
-    await player.seek(position);
+    await _audioPlayer.seek(position);
   }
 
   // 尝试备用播放方法
@@ -594,8 +609,8 @@ class AudioPlayerManager extends ChangeNotifier {
       }
 
       // 尝试简单的URL播放
-      await player.setUrl(audioItem.audioUrl);
-      await player.play();
+      await _audioPlayer.setUrl(audioItem.audioUrl);
+      await _audioPlayer.play();
       _isPlaying = true;
       notifyListeners();
       debugPrint('备用播放方法成功');
@@ -604,5 +619,45 @@ class AudioPlayerManager extends ChangeNotifier {
       _isPlaying = false;
       notifyListeners();
     }
+  }
+
+  Future<void> playVideo(VideoItem video, String audioUrl) async {
+    try {
+      if (_currentVideo?.id != video.id) {
+        _currentVideo = video;
+        await _audioPlayer.setUrl(audioUrl);
+      }
+      await _audioPlayer.play();
+      debugPrint('音频播放成功');
+    } catch (e) {
+      debugPrint('播放失败: $e');
+    }
+  }
+
+  Future<void> seekTo(Duration position) async {
+    await _audioPlayer.seek(position);
+  }
+
+  Future<void> setVolume(double volume) async {
+    _volume = volume.clamp(0.0, 1.0);
+    await _audioPlayer.setVolume(_volume);
+    notifyListeners();
+  }
+
+  Future<void> setSpeed(double speed) async {
+    _speed = speed;
+    await _audioPlayer.setSpeed(_speed);
+    notifyListeners();
+  }
+
+  Future<void> toggleLoop() async {
+    _isLooping = !_isLooping;
+    await _audioPlayer.setLoopMode(_isLooping ? LoopMode.one : LoopMode.off);
+    notifyListeners();
+  }
+
+  Future<void> toggleShuffle() async {
+    _isShuffling = !_isShuffling;
+    notifyListeners();
   }
 }

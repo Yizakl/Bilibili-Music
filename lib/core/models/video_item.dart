@@ -30,10 +30,10 @@ class VideoItem {
     required this.id,
     required this.title,
     required this.uploader,
-    this.uploaderId = '',
+    required this.uploaderId,
     required this.thumbnail,
-    required this.duration,
     required this.playCount,
+    required this.duration,
     required this.publishDate,
     this.description = '',
     this.likeCount,
@@ -53,17 +53,9 @@ class VideoItem {
   // 获取修复后的缩略图URL
   String get fixedThumbnail {
     if (thumbnail.isEmpty) {
-      return 'https://via.placeholder.com/150';
+      return 'https://i0.hdslb.com/bfs/archive/1c471796343e25a9f76895e393d4e3d4e2f32d98.jpg';
     }
-    // 处理无scheme的URL
-    if (thumbnail.startsWith('//')) {
-      return 'https:$thumbnail';
-    }
-    // 处理file:///开头的URL (不支持的scheme)
-    if (thumbnail.startsWith('file:///')) {
-      return 'https://via.placeholder.com/150';
-    }
-    return thumbnail;
+    return thumbnail.startsWith('//') ? 'https:$thumbnail' : thumbnail;
   }
 
   // 工厂构造函数，从JSON构建
@@ -113,40 +105,46 @@ class VideoItem {
       return VideoItem(
         id: videoId,
         title: json['title'] ?? '未知标题',
-        uploader:
-            json['author'] ?? json['uploader'] ?? json['owner']?['name'] ?? '',
-        uploaderId: json['mid'] ?? json['owner']?['mid']?.toString() ?? '',
-        thumbnail: json['pic'] ?? json['thumbnail'] ?? json['cover'] ?? '',
+        uploader: json['author'] ?? '未知UP主',
+        uploaderId: json['mid']?.toString() ?? '',
+        thumbnail: json['pic'] ?? '',
+        playCount: json['play'] ?? 0,
+        duration: videoDuration,
+        publishDate: json['pubdate'] != null
+            ? DateTime.fromMillisecondsSinceEpoch(json['pubdate'] * 1000)
+                .toString()
+                .substring(0, 10)
+            : '',
         description: json['desc'] ?? json['introduction'] ?? '',
-        playCount: int.tryParse(json['play']?.toString() ?? '0') ?? 0,
         likeCount: json['like'] ?? json['stat']?['like'],
         coinCount: json['coin'] ?? json['stat']?['coin'],
         favoriteCount: json['favorite'] ?? json['stat']?['favorite'],
         shareCount: json['share'] ?? json['stat']?['share'],
         commentCount: json['reply'] ?? json['stat']?['reply'],
         danmakuCount: json['danmaku'] ?? json['stat']?['danmaku'],
-        duration: videoDuration,
         publishedAt: publishTime,
         tags: tagList,
         cid: json['cid']?.toString(),
         audioUrl: json['url'] ?? '',
         isLive: json['live'] == 1,
         isAd: json['isad'] == 1,
-        publishDate: json['pubdate']?.toString() ?? json['publishDate'] ?? '',
       );
     } catch (e) {
       // 解析失败时返回基本数据
       return VideoItem(
         id: json['bvid'] ?? json['aid']?.toString() ?? '未知ID',
         title: json['title'] ?? '未知标题',
-        uploader:
-            json['author'] ?? json['uploader'] ?? json['owner']?['name'] ?? '',
-        uploaderId: json['mid'] ?? json['owner']?['mid']?.toString() ?? '',
-        thumbnail: json['pic'] ?? json['thumbnail'] ?? json['cover'] ?? '',
+        uploader: json['author'] ?? '未知UP主',
+        uploaderId: json['mid']?.toString() ?? '',
+        thumbnail: json['pic'] ?? '',
+        playCount: json['play'] ?? 0,
         duration: _formatDuration(
             int.tryParse(json['duration']?.toString() ?? '0') ?? 0),
-        playCount: int.tryParse(json['play']?.toString() ?? '0') ?? 0,
-        publishDate: json['pubdate']?.toString() ?? json['publishDate'] ?? '',
+        publishDate: json['pubdate'] != null
+            ? DateTime.fromMillisecondsSinceEpoch(json['pubdate'] * 1000)
+                .toString()
+                .substring(0, 10)
+            : '',
       );
     }
   }
@@ -154,10 +152,11 @@ class VideoItem {
   // 将播放次数格式化为友好的字符串
   String get formattedPlayCount {
     if (playCount == null) return '0';
-    if (playCount! >= 10000) {
+    if (playCount! < 10000) return playCount.toString();
+    if (playCount! < 100000000) {
       return '${(playCount! / 10000).toStringAsFixed(1)}万';
     }
-    return playCount.toString();
+    return '${(playCount! / 100000000).toStringAsFixed(1)}亿';
   }
 
   // 复制并创建一个新对象，可选择性地更新某些字段
@@ -224,27 +223,27 @@ class VideoItem {
   // 转换为JSON
   Map<String, dynamic> toJson() {
     return {
-      'id': id,
+      'bvid': id,
       'title': title,
-      'uploader': uploader,
-      'uploaderId': uploaderId,
-      'thumbnail': thumbnail,
+      'author': uploader,
+      'mid': uploaderId,
+      'pic': thumbnail,
+      'play': playCount,
+      'duration': duration,
+      'pubdate': publishDate,
       'description': description,
-      'playCount': playCount,
       'likeCount': likeCount,
       'coinCount': coinCount,
       'favoriteCount': favoriteCount,
       'shareCount': shareCount,
       'commentCount': commentCount,
       'danmakuCount': danmakuCount,
-      'duration': duration,
       'publishedAt': publishedAt?.millisecondsSinceEpoch,
       'tags': tags,
       'cid': cid,
       'audioUrl': audioUrl,
       'isLive': isLive,
       'isAd': isAd,
-      'publishDate': publishDate,
     };
   }
 

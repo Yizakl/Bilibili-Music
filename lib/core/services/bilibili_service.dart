@@ -10,8 +10,9 @@ import '../models/video_item.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
 import 'package:logging/logging.dart';
+import 'package:flutter/foundation.dart';
 
-class BilibiliService {
+class BilibiliService extends ChangeNotifier {
   final Dio _dio;
   final _logger = Logger('BilibiliService');
   final _apiBaseUrl = 'https://api.bilibili.com';
@@ -34,9 +35,9 @@ class BilibiliService {
   static const String _userNameKey = 'user_name';
   static const String _userAvatarKey = 'user_avatar';
 
-  BilibiliService() : _dio = Dio() {
-    _dio.options.connectTimeout = const Duration(seconds: 15);
-    _dio.options.receiveTimeout = const Duration(seconds: 15);
+  BilibiliService(this._prefs) : _dio = Dio() {
+    _dio.options.connectTimeout = const Duration(seconds: 10);
+    _dio.options.receiveTimeout = const Duration(seconds: 10);
     _initDio();
     _initPrefs();
   }
@@ -75,6 +76,7 @@ class BilibiliService {
     }
     _dio.options.headers['Cookie'] =
         'SESSDATA=$sessdata; bili_jct=$biliJct; DedeUserID=$dedeUserID';
+    notifyListeners();
   }
 
   Future<void> clearCookies() async {
@@ -84,6 +86,7 @@ class BilibiliService {
     await _prefs.remove(_userNameKey);
     await _prefs.remove(_userAvatarKey);
     _dio.options.headers.remove('Cookie');
+    notifyListeners();
   }
 
   Future<Map<String, String?>> getSavedCookies() async {
@@ -152,158 +155,45 @@ class BilibiliService {
   // 搜索视频
   Future<List<VideoItem>> searchVideos(String keyword) async {
     try {
-      if (keyword.isEmpty) {
-        return [];
-      }
+      // 生成随机buvid和uuid
+      final buvid = _generateRandomBuvid();
+      final uuid = _generateRandomUuid();
 
-      debugPrint('开始搜索视频: $keyword');
-
-      // 添加随机延迟，避免被频率限制
-      await Future.delayed(
-          Duration(milliseconds: 500 + Random().nextInt(1000)));
-
-      // 使用BV号或AV号直接获取视频
-      if (keyword.startsWith('BV') ||
-          keyword.startsWith('av') ||
-          keyword.startsWith('AV')) {
-        debugPrint('检测到BV/AV号，直接获取视频');
-        final videoItem = await getVideoDetail(keyword);
-        if (videoItem != null) {
-          return [videoItem];
-        }
-      }
-
-      // 构建请求参数
-      final Map<String, dynamic> params = {
-        'keyword': keyword,
-        'search_type': 'video',
-        'order': 'totalrank',
-        'page': 1,
-        'platform': 'pc',
-      };
-
-      // 为避免412错误，使用自定义Dio实例并设置较长超时和更多浏览器特征
-      final customDio = Dio(BaseOptions(
-        baseUrl: 'https://api.bilibili.com',
-        connectTimeout: const Duration(seconds: 30),
-        receiveTimeout: const Duration(seconds: 30),
-        headers: {
-          'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0',
-          'Referer':
-              'https://search.bilibili.com/all?keyword=${Uri.encodeComponent(keyword)}',
-          'Origin': 'https://search.bilibili.com',
-          'Accept': 'application/json, text/plain, */*',
-          'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-          'Sec-Ch-Ua':
-              '"Chromium";v="124", "Microsoft Edge";v="124", "Not-A.Brand";v="99"',
-          'Sec-Ch-Ua-Mobile': '?0',
-          'Sec-Ch-Ua-Platform': '"Windows"',
-          'Sec-Fetch-Dest': 'empty',
-          'Sec-Fetch-Mode': 'cors',
-          'Sec-Fetch-Site': 'same-site',
-          'Cookie':
-              'buvid3=${_generateRandomBuvid()}; i-wanna-go-back=-1; b_ut=7; b_nut=1683158400; LIVE_BUVID=AUTO1316831584006138; _uuid=${_generateRandomUuid()};',
+      final response = await _dio.get(
+        '$_apiBaseUrl/x/web-interface/search/all/v2',
+        queryParameters: {
+          'keyword': keyword,
+          'page': 1,
+          'page_size': 20,
+          't': DateTime.now().millisecondsSinceEpoch,
         },
-        validateStatus: (status) => true, // 允许任何状态码，便于调试
-      ));
-
-      if (kDebugMode) {
-        customDio.interceptors.add(LogInterceptor(
-          request: true,
-          requestHeader: true,
-          requestBody: true,
-          responseHeader: true,
-          responseBody: true,
-          error: true,
-          logPrint: (object) => debugPrint('搜索API: $object'),
-        ));
-      }
-
-      // 发送搜索请求
-      debugPrint('发送搜索请求');
-      final response = await customDio.get(
-        '/x/web-interface/search/type',
-        queryParameters: params,
+        options: Options(
+          headers: {
+            'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Referer': 'https://www.bilibili.com',
+            'Origin': 'https://www.bilibili.com',
+            'Cookie': 'buvid3=$buvid; _uuid=$uuid;',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+          },
+          validateStatus: (status) => status! < 500,
+        ),
       );
 
-      // 检查响应
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> data = response.data;
-        debugPrint('搜索API响应状态码: ${response.statusCode}');
+      if (response.statusCode == 200 && response.data['code'] == 0) {
+        final List<dynamic> results = response.data['data']['result'];
+        final List<VideoItem> videos = [];
 
-        // 检查API返回的状态码
-        if (data['code'] == 0 && data['data'] != null) {
-          final List<dynamic> items = data['data']['result'] ?? [];
-
-          debugPrint('搜索结果数量: ${items.length}');
-
-          // 解析视频项
-          final List<VideoItem> videos = [];
-          for (var item in items) {
-            try {
-              // 转换为我们需要的格式
-              final video = VideoItem.fromJson({
-                'bvid': item['bvid'],
-                'title': _removeHtmlTags(item['title'] ?? '未知标题'),
-                'author': item['author'] ?? '未知UP主',
-                'mid': item['mid']?.toString() ?? '',
-                'pic': item['pic'] ?? '',
-                'duration': _formatSearchDuration(item['duration'] is int
-                    ? item['duration']
-                    : int.tryParse(item['duration']?.toString() ?? '0') ?? 0),
-                'play': int.tryParse(item['play']?.toString() ?? '0') ?? 0,
-                'pubdate': item['pubdate'] != null
-                    ? _formatDate(item['pubdate'] is int
-                        ? item['pubdate']
-                        : int.tryParse(item['pubdate'].toString()) ?? 0)
-                    : '',
-              });
-
-              videos.add(video);
-            } catch (e) {
-              debugPrint('解析搜索结果失败: $e');
+        for (var result in results) {
+          if (result['result_type'] == 'video') {
+            for (var video in result['data']) {
+              videos.add(VideoItem.fromJson(video));
             }
           }
-
-          // 添加到搜索历史
-          if (videos.isNotEmpty) {
-            _addToSearchHistory(keyword);
-          }
-
-          debugPrint('处理后的视频数量: ${videos.length}');
-          return videos;
-        } else {
-          debugPrint('搜索API错误码: ${data['code']}, 消息: ${data['message']}');
-
-          // 如果被封禁(412)，尝试使用热门视频作为结果
-          if (data['code'] == -412) {
-            debugPrint('搜索请求被封禁，尝试获取热门视频');
-            return await getPopularVideos();
-          }
         }
-      } else {
-        debugPrint('搜索请求失败，状态码: ${response.statusCode}');
 
-        // 如果是412错误，尝试使用热门视频作为结果
-        if (response.statusCode == 412) {
-          debugPrint('搜索请求被封禁，尝试获取热门视频');
-          return await getPopularVideos();
-        }
-      }
-
-      return [];
-    } on DioException catch (e) {
-      debugPrint('搜索Dio异常: ${e.type}, ${e.message}');
-      if (e.response != null) {
-        debugPrint('响应状态码: ${e.response?.statusCode}');
-        debugPrint('响应数据: ${e.response?.data}');
-
-        // 如果是412错误，尝试使用热门视频作为结果
-        if (e.response?.statusCode == 412) {
-          debugPrint('搜索请求被封禁，尝试获取热门视频');
-          return await getPopularVideos();
-        }
+        return videos;
       }
       return [];
     } catch (e) {
@@ -966,15 +856,15 @@ class BilibiliService {
   // 添加到收藏
   Future<bool> addToFavorites(VideoItem video) async {
     try {
-      final favorites = _prefs.getStringList(_favoriteKey) ?? [];
+      String favoritesJson = _prefs.getString(_favoriteKey) ?? '[]';
+      List<dynamic> favorites = jsonDecode(favoritesJson);
 
       // 检查是否已存在
-      final videoJson = json.encode(video.toJson());
-      if (!favorites.contains(videoJson)) {
-        favorites.add(videoJson);
-        await _prefs.setStringList(_favoriteKey, favorites);
+      if (!favorites.any((item) => item['id'] == video.id)) {
+        favorites.add(video.toJson());
+        await _prefs.setString(_favoriteKey, jsonEncode(favorites));
+        notifyListeners();
       }
-
       return true;
     } catch (e) {
       debugPrint('添加收藏失败: $e');
@@ -985,18 +875,12 @@ class BilibiliService {
   // 从收藏中移除
   Future<bool> removeFromFavorites(String videoId) async {
     try {
-      final favorites = _prefs.getStringList(_favoriteKey) ?? [];
+      String favoritesJson = _prefs.getString(_favoriteKey) ?? '[]';
+      List<dynamic> favorites = jsonDecode(favoritesJson);
 
-      final updatedFavorites = favorites.where((item) {
-        try {
-          final itemMap = json.decode(item);
-          return itemMap['id'] != videoId;
-        } catch (e) {
-          return false;
-        }
-      }).toList();
-
-      await _prefs.setStringList(_favoriteKey, updatedFavorites);
+      favorites.removeWhere((item) => item['id'] == videoId);
+      await _prefs.setString(_favoriteKey, jsonEncode(favorites));
+      notifyListeners();
       return true;
     } catch (e) {
       debugPrint('移除收藏失败: $e');
@@ -1009,7 +893,6 @@ class BilibiliService {
     try {
       String favoritesJson = _prefs.getString(_favoriteKey) ?? '[]';
       List<dynamic> favorites = jsonDecode(favoritesJson);
-
       return favorites.any((item) => item['id'] == videoId);
     } catch (e) {
       debugPrint('检查收藏状态失败: $e');

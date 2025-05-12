@@ -6,6 +6,8 @@ import '../../../../core/services/bilibili_service.dart';
 import '../../../../core/models/video_item.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../../core/services/favorites_service.dart';
+import 'package:flutter_easyloading/flutter_easyloading.dart';
 
 class SearchPage extends StatefulWidget {
   const SearchPage({Key? key}) : super(key: key);
@@ -199,6 +201,24 @@ class _SearchPageState extends State<SearchPage>
       if (mounted) {
         setState(() => _isLoading = false);
       }
+    }
+  }
+
+  void _toggleFavorite(VideoItem video) async {
+    final favoritesService =
+        Provider.of<FavoritesService>(context, listen: false);
+    final isFavorite = favoritesService.isFavorite(video.id);
+
+    try {
+      if (isFavorite) {
+        await favoritesService.removeFavorite(video.id);
+        EasyLoading.showSuccess('已取消收藏');
+      } else {
+        await favoritesService.addFavorite(video);
+        EasyLoading.showSuccess('已添加到收藏');
+      }
+    } catch (e) {
+      EasyLoading.showError('操作失败: $e');
     }
   }
 
@@ -407,9 +427,29 @@ class _SearchPageState extends State<SearchPage>
                               ),
                             ],
                           ),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.play_arrow),
-                            onPressed: () => _navigateToPlayer(video),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Consumer<FavoritesService>(
+                                builder: (context, favoritesService, child) {
+                                  final isFavorite =
+                                      favoritesService.isFavorite(video.id);
+                                  return IconButton(
+                                    icon: Icon(
+                                      isFavorite
+                                          ? Icons.favorite
+                                          : Icons.favorite_border,
+                                      color: isFavorite ? Colors.red : null,
+                                    ),
+                                    onPressed: () => _toggleFavorite(video),
+                                  );
+                                },
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.play_arrow),
+                                onPressed: () => _navigateToPlayer(video),
+                              ),
+                            ],
                           ),
                           onTap: () => _navigateToPlayer(video),
                         ),
