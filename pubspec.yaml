@@ -52,6 +52,8 @@ dependencies:
   http: ^0.13.6
   tray_manager: ^0.2.0
   audio_session: ^0.1.25
+  cookie_jar: ^4.0.8
+  dio_cookie_manager: ^3.2.0
 
 dev_dependencies:
   flutter_test:

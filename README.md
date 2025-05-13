@@ -10,9 +10,6 @@
 - 🌙 支持深色模式和浅色模式切换
 - 🔄 使用mir6 API流畅播放B站视频音频
 
-## 🖼️ 应用截图
-
-_应用截图即将上传_
 
 ## 🚀 开始使用
 
@@ -25,6 +22,8 @@ _应用截图即将上传_
 1. 从[Release页面](https://github.com/Yizakl/Bilibili-Music/releases)下载最新版本
 2. 解压文件到任意位置
 3. 运行 `bilibili_music.exe` 开始使用
+
+如果你老急了，迫不及待要食用我的104+问题的版本，你可以使用 [Actions内构建的版本](https://github.com/Yizakl/Bilibili-Music/actions)
 
 ## 💻 开发者指南
 
@@ -78,10 +77,10 @@ lib/
 ## 📱 支持平台
 
 - ✅ Windows
-- 🚧 Android (开发中)
-- 🚧 iOS (开发中)
-- 🚧 macOS (开发中)
-- 🚧 Linux (开发中)
+- 🚧 Android (C盘被VS2022占满了)
+- ✅ iOS (后台播放未完善)
+- 🚧 macOS (我的黑苹果没显卡驱动不想打开)
+- 🚧 Linux (换成黑苹果了)
 
 ## 🤝 贡献
 

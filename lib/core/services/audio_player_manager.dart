@@ -57,14 +57,20 @@ class AudioPlayerManager extends ChangeNotifier {
     _audioPlayer.playerStateStream.listen((state) {
       _isPlaying = state.playing;
       isPlayingNotifier.value = state.playing;
-      notifyListeners();
 
       // 确保iOS设备上保持音频会话活跃（修复后台播放问题）
-      if (Platform.isIOS && state.playing) {
+      if (Platform.isIOS) {
         AudioSession.instance.then((session) {
-          session.setActive(true);
+          session.setActive(state.playing);
         });
       }
+
+      // 更新通知栏状态
+      if (state.playing) {
+        _updateNotificationState();
+      }
+
+      notifyListeners();
     });
 
     // 监听播放位置
@@ -96,12 +102,33 @@ class AudioPlayerManager extends ChangeNotifier {
     });
   }
 
+  // 更新通知栏状态
+  void _updateNotificationState() {
+    if (_currentAudio != null) {
+      // 确保通知栏显示正确的播放状态
+      _audioPlayer
+          .setAudioSource(
+        _audioPlayer.audioSource!,
+        preload: false,
+      )
+          .then((_) {
+        // 重新设置播放状态
+        if (_isPlaying) {
+          _audioPlayer.play();
+        }
+      });
+    }
+  }
+
   // 播放音频
   Future<void> playAudio(AudioItem audioItem) async {
     try {
       if (_currentAudio?.id == audioItem.id) {
         if (!_isPlaying) {
           await _audioPlayer.play();
+          _isPlaying = true;
+          isPlayingNotifier.value = true;
+          _updateNotificationState();
         }
         return;
       }
@@ -123,38 +150,48 @@ class AudioPlayerManager extends ChangeNotifier {
       final localFilePath = await getLocalAudioPath(audioItem.id);
       final localFile = File(localFilePath);
 
+      // 创建MediaItem
+      final mediaItem = MediaItem(
+        id: audioItem.id,
+        title: audioItem.title,
+        artist: audioItem.uploader,
+        artUri: Uri.parse(audioItem.fixedThumbnail),
+        album: 'Bilibili Music',
+        displayTitle: audioItem.title,
+        displaySubtitle: audioItem.uploader,
+      );
+
       if (await localFile.exists()) {
         // 使用本地文件播放
         final audioSource = AudioSource.uri(
           Uri.file(localFilePath),
-          tag: MediaItem(
-            id: audioItem.id,
-            title: audioItem.title,
-            artist: audioItem.uploader,
-            artUri: Uri.parse(audioItem.fixedThumbnail),
-          ),
+          tag: mediaItem,
         );
         await _audioPlayer.setAudioSource(audioSource);
       } else {
         // 使用在线URL播放
         final audioSource = AudioSource.uri(
           Uri.parse(audioItem.audioUrl),
-          tag: MediaItem(
-            id: audioItem.id,
-            title: audioItem.title,
-            artist: audioItem.uploader,
-            artUri: Uri.parse(audioItem.fixedThumbnail),
-          ),
+          tag: mediaItem,
+          headers: {
+            'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Referer': 'https://www.bilibili.com/',
+            'Origin': 'https://www.bilibili.com',
+          },
         );
         await _audioPlayer.setAudioSource(audioSource);
       }
 
       await _audioPlayer.play();
       _isPlaying = true;
+      isPlayingNotifier.value = true;
+      _updateNotificationState();
       notifyListeners();
     } catch (e) {
       debugPrint('播放音频失败: $e');
       _isPlaying = false;
+      isPlayingNotifier.value = false;
       notifyListeners();
     }
   }
@@ -164,6 +201,8 @@ class AudioPlayerManager extends ChangeNotifier {
     try {
       await _audioPlayer.pause();
       _isPlaying = false;
+      isPlayingNotifier.value = false;
+      _updateNotificationState();
       notifyListeners();
     } catch (e) {
       debugPrint('暂停音频失败: $e');
@@ -176,6 +215,8 @@ class AudioPlayerManager extends ChangeNotifier {
       if (_currentAudio != null) {
         await _audioPlayer.play();
         _isPlaying = true;
+        isPlayingNotifier.value = true;
+        _updateNotificationState();
         notifyListeners();
       }
     } catch (e) {

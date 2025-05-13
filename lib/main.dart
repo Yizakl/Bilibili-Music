@@ -52,6 +52,9 @@ Future<void> main() async {
     fastForwardInterval: const Duration(seconds: 10),
     rewindInterval: const Duration(seconds: 10),
     androidNotificationIcon: 'mipmap/ic_launcher',
+    notificationColor: Colors.blue,
+    androidNotificationClickStartsActivity: true,
+    androidNotificationChannelDescription: 'Bilibili Music 音频播放通知',
   );
 
   // 获取本地存储实例
