@@ -13,6 +13,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import '../models/video_item.dart';
+import 'package:flutter_easyloading/flutter_easyloading.dart';
 
 class AudioPlayerManager extends ChangeNotifier {
   final AudioPlayer _audioPlayer = AudioPlayer();
@@ -45,6 +46,12 @@ class AudioPlayerManager extends ChangeNotifier {
   List<AudioItem> _favorites = [];
 
   VideoItem? _currentVideo;
+
+  // 添加定时关闭功能
+  Timer? _sleepTimer;
+  DateTime? _sleepTargetTime;
+  final ValueNotifier<Duration?> remainingSleepTimeNotifier =
+      ValueNotifier<Duration?>(null);
 
   AudioPlayerManager() {
     _initAudioPlayer();
@@ -123,14 +130,37 @@ class AudioPlayerManager extends ChangeNotifier {
   // 播放音频
   Future<void> playAudio(AudioItem audioItem) async {
     try {
+      // 检查音频URL是否有效
+      if (audioItem.audioUrl.isEmpty) {
+        debugPrint('音频URL为空');
+        EasyLoading.showError('音频地址无效');
+        return;
+      }
+
+      // 如果正在播放相同的音频，只切换播放状态
       if (_currentAudio?.id == audioItem.id) {
         if (!_isPlaying) {
-          await _audioPlayer.play();
-          _isPlaying = true;
-          isPlayingNotifier.value = true;
-          _updateNotificationState();
+          try {
+            await _audioPlayer.play();
+            _isPlaying = true;
+            isPlayingNotifier.value = true;
+            _updateNotificationState();
+          } catch (e) {
+            debugPrint('恢复播放失败: $e');
+            EasyLoading.showError('恢复播放失败');
+          }
         }
         return;
+      }
+
+      // 显示加载提示
+      EasyLoading.show(status: '加载中...');
+
+      // 停止当前播放
+      try {
+        await _audioPlayer.stop();
+      } catch (e) {
+        debugPrint('停止当前播放失败: $e');
       }
 
       _currentAudio = audioItem;
@@ -142,9 +172,6 @@ class AudioPlayerManager extends ChangeNotifier {
         _playlist.add(audioItem);
         _currentIndex = _playlist.length - 1;
       }
-
-      // 停止当前播放
-      await _audioPlayer.stop();
 
       // 检查是否有本地文件
       final localFilePath = await getLocalAudioPath(audioItem.id);
@@ -161,37 +188,48 @@ class AudioPlayerManager extends ChangeNotifier {
         displaySubtitle: audioItem.uploader,
       );
 
-      if (await localFile.exists()) {
-        // 使用本地文件播放
-        final audioSource = AudioSource.uri(
-          Uri.file(localFilePath),
-          tag: mediaItem,
-        );
-        await _audioPlayer.setAudioSource(audioSource);
-      } else {
-        // 使用在线URL播放
-        final audioSource = AudioSource.uri(
-          Uri.parse(audioItem.audioUrl),
-          tag: mediaItem,
-          headers: {
-            'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Referer': 'https://www.bilibili.com/',
-            'Origin': 'https://www.bilibili.com',
-          },
-        );
-        await _audioPlayer.setAudioSource(audioSource);
-      }
+      // 设置音频源
+      try {
+        if (await localFile.exists()) {
+          // 使用本地文件播放
+          final audioSource = AudioSource.uri(
+            Uri.file(localFilePath),
+            tag: mediaItem,
+          );
+          await _audioPlayer.setAudioSource(audioSource);
+        } else {
+          // 使用在线URL播放
+          final audioSource = AudioSource.uri(
+            Uri.parse(audioItem.audioUrl),
+            tag: mediaItem,
+            headers: {
+              'User-Agent':
+                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+              'Referer': 'https://www.bilibili.com/',
+              'Origin': 'https://www.bilibili.com',
+            },
+          );
+          await _audioPlayer.setAudioSource(audioSource);
+        }
 
-      await _audioPlayer.play();
-      _isPlaying = true;
-      isPlayingNotifier.value = true;
-      _updateNotificationState();
-      notifyListeners();
+        // 开始播放
+        await _audioPlayer.play();
+        _isPlaying = true;
+        isPlayingNotifier.value = true;
+        _updateNotificationState();
+        EasyLoading.dismiss();
+      } catch (e) {
+        debugPrint('设置音频源失败: $e');
+        EasyLoading.showError('加载音频失败');
+        _isPlaying = false;
+        isPlayingNotifier.value = false;
+      }
     } catch (e) {
       debugPrint('播放音频失败: $e');
+      EasyLoading.showError('播放失败');
       _isPlaying = false;
       isPlayingNotifier.value = false;
+    } finally {
       notifyListeners();
     }
   }
@@ -547,6 +585,9 @@ class AudioPlayerManager extends ChangeNotifier {
       notifier.dispose();
     }
 
+    _sleepTimer?.cancel();
+    remainingSleepTimeNotifier.dispose();
+
     super.dispose();
     debugPrint('AudioPlayerManager资源已释放');
   }
@@ -563,7 +604,7 @@ class AudioPlayerManager extends ChangeNotifier {
             id: video.id,
             title: video.title,
             artist: video.uploader,
-            artUri: video.thumbnail != null ? Uri.parse(video.thumbnail) : null,
+            artUri: Uri.parse(video.fixedThumbnail),
             album: 'Bilibili音频',
             displayTitle: video.title,
             displaySubtitle: video.uploader,
@@ -615,4 +656,43 @@ class AudioPlayerManager extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  // 设置定时关闭
+  Future<void> setSleepTimer(Duration? duration) async {
+    _sleepTimer?.cancel();
+    _sleepTimer = null;
+    _sleepTargetTime = null;
+    remainingSleepTimeNotifier.value = null;
+
+    if (duration == null) {
+      return;
+    }
+
+    _sleepTargetTime = DateTime.now().add(duration);
+    remainingSleepTimeNotifier.value = duration;
+
+    _sleepTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      final now = DateTime.now();
+      if (now.isAfter(_sleepTargetTime!)) {
+        timer.cancel();
+        stop();
+        _sleepTimer = null;
+        _sleepTargetTime = null;
+        remainingSleepTimeNotifier.value = null;
+      } else {
+        remainingSleepTimeNotifier.value = _sleepTargetTime!.difference(now);
+      }
+    });
+  }
+
+  // 取消定时关闭
+  void cancelSleepTimer() {
+    _sleepTimer?.cancel();
+    _sleepTimer = null;
+    _sleepTargetTime = null;
+    remainingSleepTimeNotifier.value = null;
+  }
+
+  // 获取剩余定时时间
+  Duration? get remainingSleepTime => remainingSleepTimeNotifier.value;
 }

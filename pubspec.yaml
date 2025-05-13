@@ -54,6 +54,11 @@ dependencies:
   audio_session: ^0.1.25
   cookie_jar: ^4.0.8
   dio_cookie_manager: ^3.2.0
+  flutter_media_metadata: ^1.0.0+1
+  flutter_downloader: ^1.11.5
+  flutter_local_notifications: ^15.1.0+1
+  system_tray: ^2.0.3
+  timeago: ^3.5.0
 
 dev_dependencies:
   flutter_test:

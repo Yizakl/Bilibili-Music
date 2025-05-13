@@ -179,7 +179,6 @@ class _SearchPageState extends State<SearchPage>
         thumbnail: video.fixedThumbnail,
         audioUrl: audioUrl,
         addedTime: DateTime.now(),
-        playCount: video.playCount,
       );
 
       if (mounted) {

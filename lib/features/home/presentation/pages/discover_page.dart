@@ -5,6 +5,7 @@ import '../../../../core/models/video_item.dart';
 import '../../../player/presentation/pages/player_page.dart';
 import '../../../player/models/audio_item.dart' as player_models;
 import 'package:go_router/go_router.dart';
+import '../widgets/video_card.dart';
 
 class DiscoverPage extends StatefulWidget {
   const DiscoverPage({super.key});
@@ -189,184 +190,14 @@ class _DiscoverPageState extends State<DiscoverPage> {
                 delegate: SliverChildBuilderDelegate(
                   (context, index) {
                     final video = _videos[index];
-                    return VideoCard(
-                      title: video.title,
-                      thumbnail: video.thumbnail,
-                      uploader: video.uploader,
-                      views: video.playCount?.toString() ?? '0',
-                      videoId: video.id,
-                    );
+                    return VideoCard(video: video);
                   },
                   childCount: _videos.length,
                 ),
               ),
             ),
-        ], // <-- This closing bracket was missing
-      ), // <-- This closing parenthesis was missing
-    );
-  }
-}
-
-class VideoCard extends StatelessWidget {
-  final String title;
-  final String thumbnail;
-  final String uploader;
-  final String views;
-  final String videoId;
-
-  const VideoCard({
-    super.key,
-    required this.title,
-    required this.thumbnail,
-    required this.uploader,
-    required this.views,
-    required this.videoId,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () {
-          // 打开视频播放页面
-          _openVideoPlayer(context);
-        },
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // 缩略图
-            AspectRatio(
-              aspectRatio: 16 / 9,
-              child: Image.network(
-                thumbnail,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return const Center(child: Icon(Icons.error));
-                },
-              ),
-            ),
-            // 视频信息
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: Theme.of(context).textTheme.titleSmall,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      // UP主
-                      Expanded(
-                        child: Text(
-                          uploader,
-                          style: Theme.of(context).textTheme.bodySmall,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      // 播放量
-                      Icon(
-                        Icons.play_arrow,
-                        size: 14,
-                        color: Theme.of(context).textTheme.bodySmall?.color,
-                      ),
-                      const SizedBox(width: 2),
-                      Text(
-                        _formatPlayCount(views),
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+        ],
       ),
     );
-  }
-
-  // 格式化播放量
-  String _formatPlayCount(String count) {
-    try {
-      int viewCount = int.parse(count);
-      if (viewCount >= 10000) {
-        return '${(viewCount / 10000).toStringAsFixed(1)}万';
-      } else if (viewCount >= 1000) {
-        return '${(viewCount / 1000).toStringAsFixed(1)}千';
-      } else {
-        return count;
-      }
-    } catch (e) {
-      return count;
-    }
-  }
-
-  Future<void> _openVideoPlayer(BuildContext context) async {
-    try {
-      // 显示加载对话框
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const AlertDialog(
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('正在加载音频...'),
-            ],
-          ),
-        ),
-      );
-
-      final bilibiliService =
-          Provider.of<BilibiliService>(context, listen: false);
-
-      // 获取音频URL
-      final audioUrl = await bilibiliService.getAudioUrl(videoId);
-
-      // 关闭加载对话框
-      if (context.mounted) {
-        Navigator.pop(context);
-      }
-
-      if (audioUrl.isEmpty) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('无法获取音频URL')),
-          );
-        }
-        return;
-      }
-
-      // 创建AudioItem
-      final audioItem = player_models.AudioItem(
-        id: videoId,
-        title: title,
-        uploader: uploader,
-        thumbnail: thumbnail.startsWith('//') ? 'https:$thumbnail' : thumbnail,
-        audioUrl: audioUrl,
-        addedTime: DateTime.now(),
-      );
-
-      if (context.mounted) {
-        context.push('/player', extra: {'audio_item': audioItem});
-      }
-    } catch (e) {
-      // 关闭加载对话框
-      if (context.mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('播放失败: $e')),
-        );
-      }
-    }
   }
 }

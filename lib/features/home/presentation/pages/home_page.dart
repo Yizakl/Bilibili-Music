@@ -7,6 +7,8 @@ import '../../../../core/services/bilibili_service.dart';
 import '../../../../features/player/models/audio_item.dart' as player_models;
 import '../../../../core/models/video_item.dart';
 import '../../../../core/services/favorites_service.dart';
+import 'hot_videos_page.dart';
+import '../widgets/video_list_item.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -171,12 +173,15 @@ class HomeTabView extends StatefulWidget {
 
 class _HomeTabViewState extends State<HomeTabView> {
   List<VideoItem> _recentlyPlayed = [];
+  List<VideoItem> _hotVideos = [];
   bool _isLoadingHistory = true;
+  bool _isLoadingHot = true;
 
   @override
   void initState() {
     super.initState();
     _loadPlayHistory();
+    _loadHotVideos();
   }
 
   Future<void> _loadPlayHistory() async {
@@ -210,6 +215,36 @@ class _HomeTabViewState extends State<HomeTabView> {
     }
   }
 
+  Future<void> _loadHotVideos() async {
+    try {
+      final bilibiliService =
+          Provider.of<BilibiliService>(context, listen: false);
+
+      // 检查服务是否可用
+      if (!context.mounted) {
+        return;
+      }
+
+      final videos = await bilibiliService.getHotVideos();
+
+      if (!context.mounted) {
+        return;
+      }
+
+      setState(() {
+        _hotVideos = videos;
+        _isLoadingHot = false;
+      });
+    } catch (e) {
+      if (context.mounted) {
+        setState(() {
+          _isLoadingHot = false;
+        });
+      }
+      debugPrint('加载热门视频失败: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
@@ -218,7 +253,10 @@ class _HomeTabViewState extends State<HomeTabView> {
 
     return RefreshIndicator(
       onRefresh: () async {
-        await _loadPlayHistory();
+        await Future.wait([
+          _loadPlayHistory(),
+          _loadHotVideos(),
+        ]);
       },
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -230,6 +268,42 @@ class _HomeTabViewState extends State<HomeTabView> {
               UserInfoCard(user: authService.currentUser!)
             else
               const LoginPrompt(),
+
+            const SizedBox(height: 24),
+
+            // 热门榜
+            _buildSectionWithMoreButton(context, '热门榜', () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const HotVideosPage(),
+                ),
+              );
+            }),
+            const SizedBox(height: 8),
+            _isLoadingHot
+                ? const Center(child: CircularProgressIndicator())
+                : _hotVideos.isEmpty
+                    ? const Center(child: Text('暂无热门视频'))
+                    : SizedBox(
+                        height: 180,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          itemCount:
+                              _hotVideos.length > 5 ? 5 : _hotVideos.length,
+                          itemBuilder: (context, index) {
+                            final video = _hotVideos[index];
+                            return RecommendCard(
+                              title: video.title,
+                              subtitle: video.uploader,
+                              imageUrl: video.fixedThumbnail,
+                              onTap: () {
+                                _playVideo(context, video);
+                              },
+                            );
+                          },
+                        ),
+                      ),
 
             const SizedBox(height: 24),
 
@@ -281,7 +355,7 @@ class _HomeTabViewState extends State<HomeTabView> {
                             context,
                             video.title,
                             video.uploader,
-                            video.thumbnail,
+                            video.fixedThumbnail,
                             video.id,
                           );
                         },
@@ -341,17 +415,19 @@ class _HomeTabViewState extends State<HomeTabView> {
       trailing: IconButton(
         icon: const Icon(Icons.play_arrow),
         onPressed: () {
-          _playVideo(
-              context,
-              VideoItem(
-                  id: videoId,
-                  title: title,
-                  uploader: uploader,
-                  uploaderId: '',
-                  thumbnail: thumbnailUrl,
-                  duration: '00:00',
-                  playCount: 0,
-                  publishDate: ''));
+          final video = VideoItem(
+            id: videoId,
+            bvid: videoId,
+            title: title,
+            uploader: uploader,
+            thumbnail: thumbnailUrl,
+            duration: const Duration(seconds: 0),
+            uploadTime: DateTime.now(),
+            viewCount: 0,
+            likeCount: 0,
+            commentCount: 0,
+          );
+          _playVideo(context, video);
         },
       ),
     );
@@ -370,7 +446,8 @@ class _HomeTabViewState extends State<HomeTabView> {
       );
 
       // 获取音频URL
-      String audioUrl = await bilibiliService.getAudioUrl(video.id);
+      String audioUrl =
+          await bilibiliService.getAudioUrl(video.id, cid: video.cid);
 
       if (audioUrl.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -380,15 +457,7 @@ class _HomeTabViewState extends State<HomeTabView> {
       }
 
       // 创建音频项并播放
-      final audioItem = player_models.AudioItem(
-        id: video.id,
-        title: video.title,
-        uploader: video.uploader,
-        thumbnail: video.fixedThumbnail,
-        audioUrl: audioUrl,
-        addedTime: DateTime.now(),
-      );
-
+      final audioItem = video.toAudioItem(audioUrl: audioUrl);
       audioManager.playAudio(audioItem);
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -536,27 +605,9 @@ class _SearchTabViewState extends State<SearchTabView> {
       itemCount: _searchResults.length,
       itemBuilder: (context, index) {
         final video = _searchResults[index];
-        return ListTile(
-          leading: Container(
-            width: 50,
-            height: 50,
-            decoration: BoxDecoration(
-              color: Colors.grey[300],
-              image: video.fixedThumbnail.isNotEmpty
-                  ? DecorationImage(
-                      image: NetworkImage(video.fixedThumbnail),
-                      fit: BoxFit.cover,
-                    )
-                  : null,
-            ),
-            child: video.fixedThumbnail.isEmpty
-                ? Center(child: Text('${index + 1}'))
-                : null,
-          ),
-          title: Text(video.title),
-          subtitle: Text('${video.uploader} - ${video.formattedPlayCount}播放'),
+        return VideoListItem(
+          video: video,
           onTap: () {
-            // 播放该搜索结果
             _playVideo(context, video);
           },
         );
@@ -611,12 +662,29 @@ class _SearchTabViewState extends State<SearchTabView> {
           const Divider(height: 24),
         ],
 
-        const Text(
-          '热门搜索',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
+        // 热门搜索
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              '热门搜索',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const HotVideosPage(),
+                  ),
+                );
+              },
+              child: const Text('热门榜'),
+            ),
+          ],
         ),
         const SizedBox(height: 16),
         Wrap(
@@ -629,10 +697,6 @@ class _SearchTabViewState extends State<SearchTabView> {
             '林俊杰',
             '陈奕迅',
             '李荣浩',
-            '邓紫棋',
-            '毛不易',
-            '王力宏',
-            '音乐'
           ]
               .map((term) => ActionChip(
                     label: Text(term),
@@ -660,7 +724,8 @@ class _SearchTabViewState extends State<SearchTabView> {
       );
 
       // 获取音频URL
-      String audioUrl = await bilibiliService.getAudioUrl(video.id);
+      String audioUrl =
+          await bilibiliService.getAudioUrl(video.id, cid: video.cid);
 
       if (audioUrl.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -670,15 +735,7 @@ class _SearchTabViewState extends State<SearchTabView> {
       }
 
       // 创建音频项并播放
-      final audioItem = player_models.AudioItem(
-        id: video.id,
-        title: video.title,
-        uploader: video.uploader,
-        thumbnail: video.fixedThumbnail,
-        audioUrl: audioUrl,
-        addedTime: DateTime.now(),
-      );
-
+      final audioItem = video.toAudioItem(audioUrl: audioUrl);
       audioManager.playAudio(audioItem);
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -921,7 +978,8 @@ class _LibraryTabViewState extends State<LibraryTabView> {
       );
 
       // 获取音频URL
-      String audioUrl = await bilibiliService.getAudioUrl(video.id);
+      String audioUrl =
+          await bilibiliService.getAudioUrl(video.id, cid: video.cid);
 
       if (audioUrl.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -931,15 +989,7 @@ class _LibraryTabViewState extends State<LibraryTabView> {
       }
 
       // 创建音频项并播放
-      final audioItem = player_models.AudioItem(
-        id: video.id,
-        title: video.title,
-        uploader: video.uploader,
-        thumbnail: video.fixedThumbnail,
-        audioUrl: audioUrl,
-        addedTime: DateTime.now(),
-      );
-
+      final audioItem = video.toAudioItem(audioUrl: audioUrl);
       audioManager.playAudio(audioItem);
 
       ScaffoldMessenger.of(context).showSnackBar(

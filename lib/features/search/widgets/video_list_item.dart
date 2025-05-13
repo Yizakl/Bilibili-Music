@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../../core/models/video_item.dart';
-import '../../../features/player/presentation/pages/player_page.dart';
-import '../../../features/player/models/audio_item.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:provider/provider.dart';
+import '../../../core/services/bilibili_service.dart';
+import '../../../core/services/audio_player_manager.dart';
 
 class VideoListItem extends StatelessWidget {
   final VideoItem video;
@@ -18,24 +18,47 @@ class VideoListItem extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap ??
-          () {
-            // 将VideoItem转换为AudioItem
-            final audioItem = AudioItem(
-              id: video.id,
-              title: video.title,
-              uploader: video.uploader,
-              thumbnail: video.fixedThumbnail,
-              audioUrl: '', // 这个会在PlayerPage中设置
-              addedTime: DateTime.now(),
-              playCount: video.playCount,
-            );
+          () async {
+            try {
+              // 显示加载中提示
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('正在获取音频信息...')),
+              );
 
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => PlayerPage(audioItem: audioItem),
-              ),
-            );
+              // 获取必要的服务
+              final bilibiliService =
+                  Provider.of<BilibiliService>(context, listen: false);
+              final audioManager =
+                  Provider.of<AudioPlayerManager>(context, listen: false);
+
+              // 获取音频URL
+              final audioUrl =
+                  await bilibiliService.getAudioUrl(video.id, cid: video.cid);
+
+              if (audioUrl.isEmpty) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('获取音频失败')),
+                  );
+                }
+                return;
+              }
+
+              // 创建音频项并播放
+              final audioItem = video.toAudioItem(audioUrl: audioUrl);
+              if (context.mounted) {
+                audioManager.playAudio(audioItem);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('正在播放: ${video.title}')),
+                );
+              }
+            } catch (e) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('播放失败: $e')),
+                );
+              }
+            }
           },
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
@@ -45,20 +68,12 @@ class VideoListItem extends StatelessWidget {
             // 视频缩略图
             ClipRRect(
               borderRadius: BorderRadius.circular(8.0),
-              child: CachedNetworkImage(
-                imageUrl: video.fixedThumbnail,
+              child: Image.network(
+                video.fixedThumbnail,
                 width: 120,
                 height: 80,
                 fit: BoxFit.cover,
-                placeholder: (context, url) => Container(
-                  width: 120,
-                  height: 80,
-                  color: Colors.grey[300],
-                  child: const Center(
-                    child: CircularProgressIndicator(),
-                  ),
-                ),
-                errorWidget: (context, url, error) => Container(
+                errorBuilder: (context, url, error) => Container(
                   width: 120,
                   height: 80,
                   color: Colors.grey[300],
@@ -113,7 +128,7 @@ class VideoListItem extends StatelessWidget {
                       ),
                       const SizedBox(width: 4.0),
                       Text(
-                        video.duration,
+                        _formatDuration(video.duration),
                         style: TextStyle(
                           fontSize: 12.0,
                           color: Colors.grey[600],
@@ -128,5 +143,12 @@ class VideoListItem extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _formatDuration(Duration duration) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    final minutes = twoDigits(duration.inMinutes.remainder(60));
+    final seconds = twoDigits(duration.inSeconds.remainder(60));
+    return '$minutes:$seconds';
   }
 }

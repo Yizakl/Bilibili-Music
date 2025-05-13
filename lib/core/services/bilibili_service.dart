@@ -292,42 +292,56 @@ class BilibiliService extends ChangeNotifier {
   }
 
   // 获取音频URL (优先使用解析API)
-  Future<String> getAudioUrl(String videoId) async {
+  Future<String> getAudioUrl(String videoId, {String? cid}) async {
     try {
-      if (videoId.isEmpty) {
-        debugPrint('视频ID为空，无法获取音频URL');
+      // 如果videoId包含cid（格式：bvid_cid），则分离bvid和cid
+      String bvid = videoId;
+      if (videoId.contains('_')) {
+        final parts = videoId.split('_');
+        bvid = parts[0];
+        cid = parts[1];
+      }
+
+      // 如果没有提供cid，获取视频信息以获取cid
+      if (cid == null) {
+        final videoInfo = await getVideoInfo(bvid);
+        if (videoInfo != null) {
+          cid = videoInfo.cid;
+        }
+      }
+
+      if (cid == null) {
+        debugPrint('无法获取视频cid');
         return '';
       }
 
-      debugPrint('开始获取音频URL: $videoId (尝试多种API)');
+      // 获取音频URL
+      final response = await _dio.get(
+        'https://api.bilibili.com/x/player/playurl',
+        queryParameters: {
+          'bvid': bvid,
+          'cid': cid,
+          'qn': 0,
+          'fnval': 16,
+          'fourk': 1,
+        },
+        options: Options(
+          headers: _getHeaders(),
+        ),
+      );
 
-      // 尝试第一种解析API
-      final result1 = await getAudioUrlWithMir6Api(videoId);
-      if (result1 != null && result1.isNotEmpty) {
-        debugPrint('成功获取解析API音频URL (方式1)');
-        return result1;
+      if (response.statusCode == 200) {
+        final data = response.data['data'];
+        if (data != null && data['dash'] != null) {
+          final audioUrls = data['dash']['audio'] as List;
+          if (audioUrls.isNotEmpty) {
+            return audioUrls[0]['baseUrl'];
+          }
+        }
       }
-
-      // 尝试第二种解析API
-      String result2 = await getAudioUrlWithBackupApi(videoId);
-      if (result2.isNotEmpty) {
-        debugPrint('成功获取解析API音频URL (方式2)');
-        return result2;
-      }
-
-      // 如果解析API都失败，尝试使用官方API作为备选
-      debugPrint('解析API失败，尝试使用官方API获取音频URL');
-      String nativeResult = await _getAudioUrlWithNativeApi(videoId);
-      if (nativeResult.isNotEmpty) {
-        debugPrint('成功通过官方API获取音频URL');
-        return nativeResult;
-      }
-
-      // 都失败了，返回空字符串
-      debugPrint('所有方法获取音频URL都失败，请检查网络连接或更新API');
       return '';
     } catch (e) {
-      debugPrint('获取音频URL过程中发生异常: $e');
+      debugPrint('获取音频URL失败: $e');
       return '';
     }
   }
@@ -644,13 +658,18 @@ class BilibiliService extends ChangeNotifier {
               // 创建VideoItem对象
               final videoItem = VideoItem(
                 id: video['bvid'] ?? 'av${video['aid']}',
+                bvid: video['bvid'] ?? 'av${video['aid']}',
                 title: video['title'] ?? '未知标题',
                 uploader: video['author'] ?? '未知UP主',
-                uploaderId: video['mid']?.toString() ?? '',
                 thumbnail: video['pic'] ?? '',
-                playCount: video['play'] ?? 0,
-                duration: video['duration'] ?? '00:00',
-                publishDate: _formatDate(video['pubdate'] ?? 0),
+                duration: Duration(
+                    seconds:
+                        int.tryParse(video['length']?.toString() ?? '0') ?? 0),
+                uploadTime: DateTime.fromMillisecondsSinceEpoch(
+                    (video['created'] ?? 0) * 1000),
+                viewCount: video['play'] ?? 0,
+                likeCount: video['like'] ?? 0,
+                commentCount: video['comment'] ?? 0,
               );
 
               videos.add(videoItem);
@@ -1149,6 +1168,133 @@ class BilibiliService extends ChangeNotifier {
       _logger.severe('检查二维码状态失败: $e');
       return {'status': false, 'message': '检查失败: $e'};
     }
+  }
+
+  // 获取视频分P信息
+  Future<List<VideoItem>> getVideoParts(String bvid) async {
+    try {
+      final response = await _dio.get(
+        'https://api.bilibili.com/x/web-interface/view',
+        queryParameters: {'bvid': bvid},
+        options: Options(
+          headers: _getHeaders(),
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data['data'];
+        if (data != null && data['pages'] != null) {
+          final List<dynamic> pages = data['pages'];
+          return pages.map((page) {
+            return VideoItem(
+              id: '${bvid}_${page['cid']}',
+              bvid: bvid,
+              title: '${data['title']} - ${page['part']}',
+              uploader: data['owner']['name'],
+              thumbnail: data['pic'],
+              duration: Duration(seconds: page['duration']),
+              uploadTime:
+                  DateTime.fromMillisecondsSinceEpoch(data['pubdate'] * 1000),
+              viewCount: data['stat']['view'],
+              likeCount: data['stat']['like'],
+              commentCount: data['stat']['reply'],
+              cid: page['cid'].toString(),
+            );
+          }).toList();
+        }
+      }
+      return [];
+    } catch (e) {
+      debugPrint('获取视频分P失败: $e');
+      return [];
+    }
+  }
+
+  // 获取热门榜
+  Future<List<VideoItem>> getHotVideos() async {
+    try {
+      final response = await _dio.get(
+        'https://api.bilibili.com/x/web-interface/popular',
+        options: Options(
+          headers: _getHeaders(),
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> videos = response.data['data']['list'];
+        return videos.map((video) {
+          return VideoItem(
+            id: video['bvid'],
+            bvid: video['bvid'],
+            title: video['title'],
+            uploader: video['owner']['name'],
+            thumbnail: video['pic'],
+            duration: Duration(seconds: video['duration']),
+            uploadTime:
+                DateTime.fromMillisecondsSinceEpoch(video['pubdate'] * 1000),
+            viewCount: video['stat']['view'],
+            likeCount: video['stat']['like'],
+            commentCount: video['stat']['reply'],
+          );
+        }).toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('获取热门榜失败: $e');
+      return [];
+    }
+  }
+
+  // 获取视频信息
+  Future<VideoItem?> getVideoInfo(String bvid) async {
+    try {
+      final response = await _dio.get(
+        'https://api.bilibili.com/x/web-interface/view',
+        queryParameters: {'bvid': bvid},
+        options: Options(
+          headers: _getHeaders(),
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data['data'];
+        if (data != null && data['pages'] != null) {
+          final List<dynamic> pages = data['pages'];
+          if (pages.isNotEmpty) {
+            final page = pages[0];
+            return VideoItem(
+              id: '${bvid}_${page['cid']}',
+              bvid: bvid,
+              title: '${data['title']} - ${page['part']}',
+              uploader: data['owner']['name'],
+              thumbnail: data['pic'],
+              duration: Duration(seconds: page['duration']),
+              uploadTime:
+                  DateTime.fromMillisecondsSinceEpoch(data['pubdate'] * 1000),
+              viewCount: data['stat']['view'],
+              likeCount: data['stat']['like'],
+              commentCount: data['stat']['reply'],
+              cid: page['cid'].toString(),
+            );
+          }
+        }
+      }
+      return null;
+    } catch (e) {
+      debugPrint('获取视频信息失败: $e');
+      return null;
+    }
+  }
+
+  Map<String, String> _getHeaders() {
+    return {
+      'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+      'Referer': 'https://www.bilibili.com',
+      'Accept': 'application/json, text/plain, */*',
+      'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+      'Origin': 'https://www.bilibili.com',
+    };
   }
 }
 
