@@ -13,6 +13,7 @@ import 'package:just_audio_background/just_audio_background.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:tray_manager/tray_manager.dart';
+import 'package:audio_session/audio_session.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/services.dart';
@@ -22,6 +23,24 @@ import 'dart:typed_data';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 配置音频会话，特别是对iOS设备的后台播放支持
+  final session = await AudioSession.instance;
+  await session.configure(const AudioSessionConfiguration(
+    avAudioSessionCategory: AVAudioSessionCategory.playback,
+    avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.mixWithOthers,
+    avAudioSessionMode: AVAudioSessionMode.defaultMode,
+    avAudioSessionRouteSharingPolicy:
+        AVAudioSessionRouteSharingPolicy.defaultPolicy,
+    avAudioSessionSetActiveOptions: AVAudioSessionSetActiveOptions.none,
+    androidAudioAttributes: AndroidAudioAttributes(
+      contentType: AndroidAudioContentType.music,
+      flags: AndroidAudioFlags.none,
+      usage: AndroidAudioUsage.media,
+    ),
+    androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
+    androidWillPauseWhenDucked: true,
+  ));
 
   // 初始化后台播放服务
   await JustAudioBackground.init(

@@ -51,7 +51,7 @@ dependencies:
   pointycastle: ^3.9.1
   http: ^0.13.6
   tray_manager: ^0.2.0
-  audio_session: ^0.1.18
+  audio_session: ^0.1.25
 
 dev_dependencies:
   flutter_test:

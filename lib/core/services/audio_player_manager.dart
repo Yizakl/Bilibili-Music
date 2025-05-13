@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
+import 'package:audio_session/audio_session.dart';
 import '../../features/player/models/audio_item.dart';
 import 'dart:async';
 import 'dart:io';
@@ -57,6 +58,13 @@ class AudioPlayerManager extends ChangeNotifier {
       _isPlaying = state.playing;
       isPlayingNotifier.value = state.playing;
       notifyListeners();
+
+      // 确保iOS设备上保持音频会话活跃（修复后台播放问题）
+      if (Platform.isIOS && state.playing) {
+        AudioSession.instance.then((session) {
+          session.setActive(true);
+        });
+      }
     });
 
     // 监听播放位置
@@ -506,12 +514,36 @@ class AudioPlayerManager extends ChangeNotifier {
     try {
       if (_currentVideo?.id != video.id) {
         _currentVideo = video;
-        await _audioPlayer.setUrl(audioUrl);
+
+        // 使用AudioSource.uri替代setUrl并添加MediaItem标签
+        final audioSource = AudioSource.uri(
+          Uri.parse(audioUrl),
+          tag: MediaItem(
+            id: video.id,
+            title: video.title,
+            artist: video.uploader,
+            artUri: video.thumbnail != null ? Uri.parse(video.thumbnail) : null,
+            album: 'Bilibili音频',
+            displayTitle: video.title,
+            displaySubtitle: video.uploader,
+          ),
+        );
+
+        await _audioPlayer.setAudioSource(audioSource);
       }
+
+      // 确保音频会话保持活跃
       await _audioPlayer.play();
+      _isPlaying = true;
+      isPlayingNotifier.value = true;
+
       debugPrint('音频播放成功');
+      notifyListeners();
     } catch (e) {
       debugPrint('播放失败: $e');
+      _isPlaying = false;
+      isPlayingNotifier.value = false;
+      notifyListeners();
     }
   }
 
