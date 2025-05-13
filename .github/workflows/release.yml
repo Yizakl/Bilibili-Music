@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Get tag
+        id: get_tag
+        run: echo ::set-output name=TAG::${GITHUB_REF#refs/tags/}
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.get_tag.outputs.TAG }}
+          release_name: BilibiliMusic ${{ steps.get_tag.outputs.TAG }}
+          draft: false
+          prerelease: false
+          body: |
+            Bilibili Music ${{ steps.get_tag.outputs.TAG }} 发布
+            
+            ## 下载
+            - [Windows 版](https://github.com/yourusername/BilbiliMusic/releases/download/${{ steps.get_tag.outputs.TAG }}/windows-release.zip)
+            - [macOS 版](https://github.com/yourusername/BilbiliMusic/releases/download/${{ steps.get_tag.outputs.TAG }}/BilibiliMusic.dmg)
+            - [Android 版](https://github.com/yourusername/BilbiliMusic/releases/download/${{ steps.get_tag.outputs.TAG }}/app-release.apk)
+            
+            ## 更新内容
+            - 新功能: 系统托盘支持
+            - 新功能: 高级设置的官方API选项
+            - 修复了一些已知问题
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: ./artifacts
+
+      - name: Upload Windows Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/windows-release/windows-release.zip
+          asset_name: windows-release.zip
+          asset_content_type: application/zip
+
+      - name: Upload macOS Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/macos-dmg/BilibiliMusic.dmg
+          asset_name: BilibiliMusic.dmg
+          asset_content_type: application/octet-stream
+
+      - name: Upload Android Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/release-apk/app-release.apk
+          asset_name: app-release.apk
+          asset_content_type: application/vnd.android.package-archive 

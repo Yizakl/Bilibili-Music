@@ -1,0 +1,71 @@
+name: Flutter Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '11'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.10.0'
+          channel: 'stable'
+      - run: flutter pub get
+      - run: flutter build apk --release
+      - name: Upload APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.10.0'
+          channel: 'stable'
+      - run: flutter config --enable-windows-desktop
+      - run: flutter pub get
+      - run: flutter build windows --release
+      - name: Create Windows ZIP
+        run: |
+          cd build/windows/runner/Release
+          7z a -tzip windows-release.zip *
+      - name: Upload Windows ZIP
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows-release
+          path: build/windows/runner/Release/windows-release.zip
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.10.0'
+          channel: 'stable'
+      - run: flutter config --enable-macos-desktop
+      - run: flutter pub get
+      - run: flutter build macos --release
+      - name: Create macOS DMG
+        run: |
+          cd build/macos/Build/Products/Release
+          hdiutil create -format UDZO -srcfolder BilibiliMusic.app BilibiliMusic.dmg
+      - name: Upload macOS DMG
+        uses: actions/upload-artifact@v3
+        with:
+          name: macos-dmg
+          path: build/macos/Build/Products/Release/BilibiliMusic.dmg 

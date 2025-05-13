@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/services/auth_service.dart';
+import '../../../../core/services/settings_service.dart';
 import '../../../../core/models/user.dart';
 import '../../../login/presentation/widgets/cookie_login_dialog.dart';
 import '../../../login/presentation/widgets/browser_login_dialog.dart';
+import 'advanced_settings_page.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -14,9 +16,6 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  bool _isThemeDark = false;
-  bool _isHighQualityEnabled = true;
-
   void _navigateToLogin() {
     context.push('/login');
   }
@@ -73,10 +72,24 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  void _navigateToAdvancedSettings() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const AdvancedSettingsPage(),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
+    final settingsService = Provider.of<SettingsService>(context);
     final user = authService.currentUser;
+
+    // 获取设置数据
+    final isThemeDark = settingsService.themeMode == ThemeMode.dark;
+    final isHighQualityEnabled = settingsService.isHighQualityEnabled;
 
     return Scaffold(
       appBar: AppBar(
@@ -106,28 +119,34 @@ class _SettingsPageState extends State<SettingsPage> {
             title: const Text('外观'),
             leading: const Icon(Icons.dark_mode),
             trailing: Switch(
-              value: _isThemeDark,
+              value: isThemeDark,
               onChanged: (value) {
-                setState(() {
-                  _isThemeDark = value;
-                });
+                settingsService
+                    .setThemeMode(value ? ThemeMode.dark : ThemeMode.light);
               },
             ),
-            subtitle: Text(_isThemeDark ? '暗色模式' : '亮色模式'),
+            subtitle: Text(isThemeDark ? '暗色模式' : '亮色模式'),
           ),
 
           ListTile(
             title: const Text('音频质量'),
             leading: const Icon(Icons.high_quality),
             trailing: Switch(
-              value: _isHighQualityEnabled,
+              value: isHighQualityEnabled,
               onChanged: (value) {
-                setState(() {
-                  _isHighQualityEnabled = value;
-                });
+                settingsService.setHighQuality(value);
               },
             ),
-            subtitle: Text(_isHighQualityEnabled ? '高品质' : '标准品质'),
+            subtitle: Text(isHighQualityEnabled ? '高品质' : '标准品质'),
+          ),
+
+          // 高级设置入口
+          ListTile(
+            title: const Text('高级设置'),
+            leading: const Icon(Icons.settings_applications),
+            trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+            subtitle: const Text('音频API来源、解码和缓存设置'),
+            onTap: _navigateToAdvancedSettings,
           ),
 
           const Divider(),
