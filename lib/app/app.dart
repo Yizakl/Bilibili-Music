@@ -5,6 +5,7 @@ import '../core/services/bilibili_service.dart';
 import '../core/services/audio_service.dart';
 import '../core/router/app_router.dart';
 import 'theme/app_theme.dart';
+import 'package:flutter_easyloading/flutter_easyloading.dart';
 
 class BilibiliMusicApp extends StatelessWidget {
   const BilibiliMusicApp({super.key});
@@ -26,6 +27,7 @@ class BilibiliMusicApp extends StatelessWidget {
       ),
       themeMode: ThemeMode.system,
       routerConfig: AppRouter.router,
+      builder: EasyLoading.init(),
     );
   }
 }

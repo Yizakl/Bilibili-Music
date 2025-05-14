@@ -445,9 +445,26 @@ class _HomeTabViewState extends State<HomeTabView> {
         const SnackBar(content: Text('正在获取音频信息...')),
       );
 
+      debugPrint('开始请求视频音频: ${video.id}, cid: ${video.cid}');
+
+      // 确保先获取完整的视频信息（如果cid为空）
+      String cid = video.cid ?? '';
+      if (cid.isEmpty) {
+        debugPrint('视频缺少cid，尝试获取完整视频信息');
+        final videoInfo = await bilibiliService.getVideoInfo(video.id);
+        if (videoInfo != null && videoInfo.cid != null) {
+          cid = videoInfo.cid!;
+          debugPrint('成功获取cid: $cid');
+        } else {
+          debugPrint('无法获取视频cid');
+        }
+      }
+
       // 获取音频URL
-      String audioUrl =
-          await bilibiliService.getAudioUrl(video.id, cid: video.cid);
+      debugPrint('开始获取音频URL');
+      String audioUrl = await bilibiliService.getAudioUrl(video.id, cid: cid);
+      debugPrint(
+          '获取到的音频URL: ${audioUrl.substring(0, audioUrl.length > 50 ? 50 : audioUrl.length)}...');
 
       if (audioUrl.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -456,14 +473,32 @@ class _HomeTabViewState extends State<HomeTabView> {
         return;
       }
 
+      // 验证音频URL有效性
+      if (!audioUrl.startsWith('http')) {
+        debugPrint('音频URL无效: $audioUrl');
+        // 再次尝试使用备用方法获取音频URL
+        audioUrl = await bilibiliService.getAudioUrlWithNativeApi(video.id);
+        if (audioUrl.isEmpty || !audioUrl.startsWith('http')) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('获取到的音频URL无效')),
+          );
+          return;
+        }
+        debugPrint(
+            '备用方法获取到音频URL: ${audioUrl.substring(0, audioUrl.length > 50 ? 50 : audioUrl.length)}...');
+      }
+
       // 创建音频项并播放
       final audioItem = video.toAudioItem(audioUrl: audioUrl);
+      debugPrint(
+          '准备播放音频: ${audioItem.title}, URL: ${audioUrl.substring(0, audioUrl.length > 50 ? 50 : audioUrl.length)}...');
       audioManager.playAudio(audioItem);
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('正在播放: ${video.title}')),
       );
     } catch (e) {
+      debugPrint('播放视频失败: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('播放失败: $e')),
       );
@@ -723,9 +758,26 @@ class _SearchTabViewState extends State<SearchTabView> {
         const SnackBar(content: Text('正在获取音频信息...')),
       );
 
+      debugPrint('开始请求视频音频: ${video.id}, cid: ${video.cid}');
+
+      // 确保先获取完整的视频信息（如果cid为空）
+      String cid = video.cid ?? '';
+      if (cid.isEmpty) {
+        debugPrint('视频缺少cid，尝试获取完整视频信息');
+        final videoInfo = await bilibiliService.getVideoInfo(video.id);
+        if (videoInfo != null && videoInfo.cid != null) {
+          cid = videoInfo.cid!;
+          debugPrint('成功获取cid: $cid');
+        } else {
+          debugPrint('无法获取视频cid');
+        }
+      }
+
       // 获取音频URL
-      String audioUrl =
-          await bilibiliService.getAudioUrl(video.id, cid: video.cid);
+      debugPrint('开始获取音频URL');
+      String audioUrl = await bilibiliService.getAudioUrl(video.id, cid: cid);
+      debugPrint(
+          '获取到的音频URL: ${audioUrl.substring(0, audioUrl.length > 50 ? 50 : audioUrl.length)}...');
 
       if (audioUrl.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -734,14 +786,32 @@ class _SearchTabViewState extends State<SearchTabView> {
         return;
       }
 
+      // 验证音频URL有效性
+      if (!audioUrl.startsWith('http')) {
+        debugPrint('音频URL无效: $audioUrl');
+        // 再次尝试使用备用方法获取音频URL
+        audioUrl = await bilibiliService.getAudioUrlWithNativeApi(video.id);
+        if (audioUrl.isEmpty || !audioUrl.startsWith('http')) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('获取到的音频URL无效')),
+          );
+          return;
+        }
+        debugPrint(
+            '备用方法获取到音频URL: ${audioUrl.substring(0, audioUrl.length > 50 ? 50 : audioUrl.length)}...');
+      }
+
       // 创建音频项并播放
       final audioItem = video.toAudioItem(audioUrl: audioUrl);
+      debugPrint(
+          '准备播放音频: ${audioItem.title}, URL: ${audioUrl.substring(0, audioUrl.length > 50 ? 50 : audioUrl.length)}...');
       audioManager.playAudio(audioItem);
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('正在播放: ${video.title}')),
       );
     } catch (e) {
+      debugPrint('播放视频失败: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('播放失败: $e')),
       );
@@ -977,9 +1047,26 @@ class _LibraryTabViewState extends State<LibraryTabView> {
         const SnackBar(content: Text('正在获取音频信息...')),
       );
 
+      debugPrint('开始请求视频音频: ${video.id}, cid: ${video.cid}');
+
+      // 确保先获取完整的视频信息（如果cid为空）
+      String cid = video.cid ?? '';
+      if (cid.isEmpty) {
+        debugPrint('视频缺少cid，尝试获取完整视频信息');
+        final videoInfo = await bilibiliService.getVideoInfo(video.id);
+        if (videoInfo != null && videoInfo.cid != null) {
+          cid = videoInfo.cid!;
+          debugPrint('成功获取cid: $cid');
+        } else {
+          debugPrint('无法获取视频cid');
+        }
+      }
+
       // 获取音频URL
-      String audioUrl =
-          await bilibiliService.getAudioUrl(video.id, cid: video.cid);
+      debugPrint('开始获取音频URL');
+      String audioUrl = await bilibiliService.getAudioUrl(video.id, cid: cid);
+      debugPrint(
+          '获取到的音频URL: ${audioUrl.substring(0, audioUrl.length > 50 ? 50 : audioUrl.length)}...');
 
       if (audioUrl.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -988,14 +1075,32 @@ class _LibraryTabViewState extends State<LibraryTabView> {
         return;
       }
 
+      // 验证音频URL有效性
+      if (!audioUrl.startsWith('http')) {
+        debugPrint('音频URL无效: $audioUrl');
+        // 再次尝试使用备用方法获取音频URL
+        audioUrl = await bilibiliService.getAudioUrlWithNativeApi(video.id);
+        if (audioUrl.isEmpty || !audioUrl.startsWith('http')) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('获取到的音频URL无效')),
+          );
+          return;
+        }
+        debugPrint(
+            '备用方法获取到音频URL: ${audioUrl.substring(0, audioUrl.length > 50 ? 50 : audioUrl.length)}...');
+      }
+
       // 创建音频项并播放
       final audioItem = video.toAudioItem(audioUrl: audioUrl);
+      debugPrint(
+          '准备播放音频: ${audioItem.title}, URL: ${audioUrl.substring(0, audioUrl.length > 50 ? 50 : audioUrl.length)}...');
       audioManager.playAudio(audioItem);
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('正在播放: ${video.title}')),
       );
     } catch (e) {
+      debugPrint('播放视频失败: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('播放失败: $e')),
       );

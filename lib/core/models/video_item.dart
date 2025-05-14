@@ -38,20 +38,153 @@ class VideoItem {
   }
 
   factory VideoItem.fromJson(Map<String, dynamic> json) {
-    return VideoItem(
-      id: json['bvid'] ?? '',
-      bvid: json['bvid'] ?? '',
-      title: json['title'] ?? '',
-      uploader: json['owner']?['name'] ?? '',
-      thumbnail: json['pic'],
-      duration: Duration(seconds: json['duration'] ?? 0),
-      uploadTime:
-          DateTime.fromMillisecondsSinceEpoch((json['pubdate'] ?? 0) * 1000),
-      viewCount: json['stat']?['view'] ?? 0,
-      likeCount: json['stat']?['like'] ?? 0,
-      commentCount: json['stat']?['reply'] ?? 0,
-      cid: json['cid']?.toString(),
-    );
+    try {
+      String id = '';
+      if (json['bvid'] != null) {
+        id = json['bvid'].toString();
+      } else if (json['id'] != null) {
+        id = json['id'].toString();
+      } else if (json['aid'] != null) {
+        id = 'av${json['aid']}';
+      }
+
+      String uploader = '';
+      if (json['owner'] != null && json['owner']['name'] != null) {
+        uploader = json['owner']['name'].toString();
+      } else if (json['author'] != null) {
+        uploader = json['author'].toString();
+      } else if (json['uploader'] != null) {
+        uploader = json['uploader'].toString();
+      }
+
+      Duration duration = Duration.zero;
+      if (json['duration'] != null) {
+        if (json['duration'] is int) {
+          duration = Duration(seconds: json['duration']);
+        } else if (json['duration'] is String) {
+          try {
+            String durationStr = json['duration'];
+            if (durationStr.contains(':')) {
+              List<String> parts = durationStr.split(':');
+              if (parts.length == 2) {
+                int minutes = int.tryParse(parts[0]) ?? 0;
+                int seconds = int.tryParse(parts[1]) ?? 0;
+                duration = Duration(seconds: minutes * 60 + seconds);
+              }
+            } else {
+              duration = Duration(seconds: int.tryParse(durationStr) ?? 0);
+            }
+          } catch (e) {
+            debugPrint('解析视频时长失败: $e');
+            duration = Duration.zero;
+          }
+        }
+      }
+
+      DateTime uploadTime = DateTime.now();
+      if (json['pubdate'] != null) {
+        try {
+          if (json['pubdate'] is int) {
+            uploadTime =
+                DateTime.fromMillisecondsSinceEpoch(json['pubdate'] * 1000);
+          } else if (json['pubdate'] is String) {
+            int timestamp = int.tryParse(json['pubdate']) ?? 0;
+            uploadTime = DateTime.fromMillisecondsSinceEpoch(timestamp * 1000);
+          }
+        } catch (e) {
+          debugPrint('解析上传时间失败: $e');
+          uploadTime = DateTime.now();
+        }
+      } else if (json['uploadTime'] != null) {
+        try {
+          if (json['uploadTime'] is int) {
+            uploadTime =
+                DateTime.fromMillisecondsSinceEpoch(json['uploadTime']);
+          }
+        } catch (e) {
+          debugPrint('解析上传时间失败: $e');
+        }
+      }
+
+      int viewCount = 0;
+      if (json['stat'] != null && json['stat']['view'] != null) {
+        if (json['stat']['view'] is int) {
+          viewCount = json['stat']['view'];
+        } else if (json['stat']['view'] is String) {
+          viewCount = int.tryParse(json['stat']['view']) ?? 0;
+        }
+      } else if (json['viewCount'] != null) {
+        if (json['viewCount'] is int) {
+          viewCount = json['viewCount'];
+        } else if (json['viewCount'] is String) {
+          viewCount = int.tryParse(json['viewCount']) ?? 0;
+        }
+      }
+
+      int likeCount = 0;
+      if (json['stat'] != null && json['stat']['like'] != null) {
+        if (json['stat']['like'] is int) {
+          likeCount = json['stat']['like'];
+        } else if (json['stat']['like'] is String) {
+          likeCount = int.tryParse(json['stat']['like']) ?? 0;
+        }
+      } else if (json['likeCount'] != null) {
+        if (json['likeCount'] is int) {
+          likeCount = json['likeCount'];
+        } else if (json['likeCount'] is String) {
+          likeCount = int.tryParse(json['likeCount']) ?? 0;
+        }
+      }
+
+      int commentCount = 0;
+      if (json['stat'] != null && json['stat']['reply'] != null) {
+        if (json['stat']['reply'] is int) {
+          commentCount = json['stat']['reply'];
+        } else if (json['stat']['reply'] is String) {
+          commentCount = int.tryParse(json['stat']['reply']) ?? 0;
+        }
+      } else if (json['commentCount'] != null) {
+        if (json['commentCount'] is int) {
+          commentCount = json['commentCount'];
+        } else if (json['commentCount'] is String) {
+          commentCount = int.tryParse(json['commentCount']) ?? 0;
+        }
+      }
+
+      String? cid = null;
+      if (json['cid'] != null) {
+        cid = json['cid'].toString();
+      }
+
+      return VideoItem(
+        id: id,
+        bvid: id,
+        title: json['title'] ?? '',
+        uploader: uploader,
+        thumbnail: json['pic'] ?? json['cover'] ?? json['thumbnail'] ?? null,
+        duration: duration,
+        uploadTime: uploadTime,
+        viewCount: viewCount,
+        likeCount: likeCount,
+        commentCount: commentCount,
+        cid: cid,
+      );
+    } catch (e) {
+      debugPrint('VideoItem.fromJson解析失败: $e');
+      // 返回一个基本的VideoItem对象，避免完全失败
+      return VideoItem(
+        id: json['bvid'] ?? 'unknown',
+        bvid: json['bvid'] ?? 'unknown',
+        title: json['title'] ?? '未知标题',
+        uploader: '未知UP主',
+        thumbnail: null,
+        duration: Duration.zero,
+        uploadTime: DateTime.now(),
+        viewCount: 0,
+        likeCount: 0,
+        commentCount: 0,
+      );
+    }
   }
 
   Map<String, dynamic> toJson() {

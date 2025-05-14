@@ -24,7 +24,7 @@ class AudioItem {
   // 获取修复后的缩略图URL
   String get fixedThumbnail {
     if (thumbnail.isEmpty) {
-      return 'https://via.placeholder.com/150';
+      return 'https://i0.hdslb.com/bfs/archive/0b2557b186a418cb3d8f307a5db85adb87bb25b0.jpg';
     }
 
     // 处理无scheme的URL
@@ -32,9 +32,14 @@ class AudioItem {
       return 'https:$thumbnail';
     }
 
+    // 处理http链接
+    if (thumbnail.startsWith('http://')) {
+      return thumbnail.replaceFirst('http://', 'https://');
+    }
+
     // 处理file:///开头的URL (不支持的scheme)
     if (thumbnail.startsWith('file:///')) {
-      return thumbnail.replaceFirst('file://', 'https:');
+      return 'https://i0.hdslb.com/bfs/archive/0b2557b186a418cb3d8f307a5db85adb87bb25b0.jpg';
     }
 
     return thumbnail;

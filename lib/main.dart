@@ -47,7 +47,7 @@ Future<void> main() async {
     androidNotificationChannelId: 'com.bilibili.music.channel.audio',
     androidNotificationChannelName: 'Bilibili Music',
     androidNotificationOngoing: true,
-    androidStopForegroundOnPause: false,
+    androidStopForegroundOnPause: true,
     androidShowNotificationBadge: true,
     fastForwardInterval: const Duration(seconds: 10),
     rewindInterval: const Duration(seconds: 10),
@@ -127,8 +127,9 @@ Future<void> main() async {
 // 系统托盘初始化
 Future<void> initSystemTray(AudioPlayerManager audioPlayerManager) async {
   try {
-    // 设置托盘图标 - 使用已有的SVG图标
-    String iconPath = 'assets/icons/logo.svg';
+    // 修改为使用PNG图标而不是SVG
+    String iconPath =
+        Platform.isWindows ? 'assets/app_icon.ico' : 'assets/app_icon.png';
 
     // 注册托盘监听器
     trayManager.addListener(AppTrayListener(audioPlayerManager));

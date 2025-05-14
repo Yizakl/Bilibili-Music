@@ -17,13 +17,41 @@ class FavoritesService extends ChangeNotifier {
   Future<void> loadFavorites() async {
     try {
       final String? favoritesJson = _prefs.getString(_favoritesKey);
-      if (favoritesJson != null) {
-        final List<dynamic> decoded = json.decode(favoritesJson);
-        _favorites = decoded.map((item) => VideoItem.fromJson(item)).toList();
-        notifyListeners();
+      if (favoritesJson == null || favoritesJson.isEmpty) {
+        _favorites = [];
+        return;
       }
+
+      final List<dynamic> favoritesList = json.decode(favoritesJson);
+      _favorites = favoritesList
+          .map((json) {
+            try {
+              return VideoItem.fromJson(json);
+            } catch (e) {
+              debugPrint('解析收藏项失败: $e');
+              // 返回一个默认的VideoItem以避免整个列表加载失败
+              return VideoItem(
+                id: 'error',
+                bvid: 'error',
+                title: '加载失败的项目',
+                uploader: '未知',
+                thumbnail: '',
+                duration: Duration.zero,
+                uploadTime: DateTime.now(),
+                viewCount: 0,
+                likeCount: 0,
+                commentCount: 0,
+              );
+            }
+          })
+          .where((item) => item.id != 'error')
+          .toList();
+      notifyListeners();
     } catch (e) {
       debugPrint('加载收藏失败: $e');
+      _favorites = [];
+      // 清除可能已损坏的收藏数据
+      await _prefs.remove(_favoritesKey);
     }
   }
 

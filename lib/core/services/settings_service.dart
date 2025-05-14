@@ -24,25 +24,33 @@ class SettingsService extends ChangeNotifier {
   AdvancedSettings get advancedSettings => _advancedSettings;
 
   // 从SharedPreferences加载设置
-  Future<void> _loadSettings() async {
-    // 加载主题设置
-    final themeModeIndex = _prefs.getInt(_themeModeKey);
-    if (themeModeIndex != null) {
-      _themeMode = ThemeMode.values[themeModeIndex];
-    }
+  void _loadSettings() {
+    try {
+      // 主题模式 (0=跟随系统, 1=浅色, 2=深色)
+      final themeMode = _prefs.getInt('theme_mode') ?? 0;
+      _themeMode = ThemeMode.values[themeMode.clamp(0, 2)];
 
-    // 加载音质设置
-    _isHighQualityEnabled = _prefs.getBool(_highQualityKey) ?? true;
+      // 加载音质设置
+      _isHighQualityEnabled = _prefs.getBool(_highQualityKey) ?? true;
 
-    // 加载高级设置
-    final advancedSettingsJson = _prefs.getString(_advancedSettingsKey);
-    if (advancedSettingsJson != null) {
-      try {
-        _advancedSettings =
-            AdvancedSettings.fromJson(json.decode(advancedSettingsJson));
-      } catch (e) {
-        debugPrint('加载高级设置失败: $e');
+      // 加载高级设置
+      final advancedSettingsJson = _prefs.getString(_advancedSettingsKey);
+      if (advancedSettingsJson != null) {
+        try {
+          _advancedSettings =
+              AdvancedSettings.fromJson(json.decode(advancedSettingsJson));
+        } catch (e) {
+          debugPrint('解析高级设置失败: $e，将使用默认设置');
+          _advancedSettings = AdvancedSettings();
+        }
+      } else {
+        _advancedSettings = AdvancedSettings();
       }
+    } catch (e) {
+      debugPrint('加载设置失败: $e，将使用默认设置');
+      _themeMode = ThemeMode.system;
+      _isHighQualityEnabled = true;
+      _advancedSettings = AdvancedSettings();
     }
 
     notifyListeners();
