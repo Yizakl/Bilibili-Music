@@ -466,7 +466,9 @@ class BilibiliService extends ChangeNotifier {
               return bandwidthB.compareTo(bandwidthA);
             });
             final audioUrl = audioUrls.first['baseUrl'] ?? '';
-            debugPrint('成功获取音频URL: ${audioUrl.substring(0, 50)}...');
+            final displayPart =
+                audioUrl.length > 50 ? audioUrl.substring(0, 50) : audioUrl;
+            debugPrint('成功获取音频URL: $displayPart...');
             return audioUrl;
           }
         }
@@ -1532,8 +1534,9 @@ class BilibiliService extends ChangeNotifier {
                 return bandwidthB.compareTo(bandwidthA);
               });
               final audioUrl = audioUrls.first['baseUrl'] ?? '';
-              debugPrint(
-                  '成功获取m4s音频URL: ${audioUrl.substring(0, math.min<int>(50, audioUrl.length))}...');
+              final displayPart =
+                  audioUrl.length > 50 ? audioUrl.substring(0, 50) : audioUrl;
+              debugPrint('成功获取音频URL: $displayPart...');
               return audioUrl;
             }
           }
@@ -1546,8 +1549,9 @@ class BilibiliService extends ChangeNotifier {
       debugPrint('尝试mir6 API获取音频URL');
       final mir6Url = await getAudioUrlByMir6Api(bvid);
       if (mir6Url != null && mir6Url.isNotEmpty) {
-        debugPrint(
-            'mir6 API获取音频URL成功: ${mir6Url.substring(0, math.min<int>(50, mir6Url.length))}...');
+        final displayUrl =
+            mir6Url.length > 50 ? mir6Url.substring(0, 50) : mir6Url;
+        debugPrint('mir6 API获取音频URL成功: $displayUrl...');
         return mir6Url;
       }
 
@@ -1555,8 +1559,9 @@ class BilibiliService extends ChangeNotifier {
       debugPrint('mir6 API失败，尝试第二个备用API');
       final backupUrl = await getAudioUrlWithBackupApi(bvid);
       if (backupUrl.isNotEmpty) {
-        debugPrint(
-            '备用API获取音频URL成功: ${backupUrl.substring(0, math.min<int>(50, backupUrl.length))}...');
+        final displayUrl =
+            backupUrl.length > 50 ? backupUrl.substring(0, 50) : backupUrl;
+        debugPrint('备用API获取音频URL成功: $displayUrl...');
         return backupUrl;
       }
 

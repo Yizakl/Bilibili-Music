@@ -52,6 +52,47 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
           // 播放设置
           _buildSectionHeader('播放设置'),
 
+          // 新增：播放模式选择
+          Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '播放模式',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                Text(
+                  '选择音频播放方式。\n"仅音频"会尝试直接播放音频流。\n"视频模式 (仅音频)" 会加载视频但只播放其音轨 (可能更兼容某些链接)。',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          RadioListTile<PlaybackMode>(
+            title: const Text('仅音频'),
+            subtitle: const Text('直接播放音频流'),
+            value: PlaybackMode.audioOnly,
+            groupValue: advancedSettings.playbackMode,
+            onChanged: (value) {
+              if (value != null) {
+                settingsService.setPlaybackMode(value);
+              }
+            },
+          ),
+          RadioListTile<PlaybackMode>(
+            title: const Text('视频模式 (仅音频)'),
+            subtitle: const Text('加载视频，但仅播放音频轨道'),
+            value: PlaybackMode.videoAsAudio,
+            groupValue: advancedSettings.playbackMode,
+            onChanged: (value) {
+              if (value != null) {
+                settingsService.setPlaybackMode(value);
+              }
+            },
+          ),
+
           SwitchListTile(
             title: const Text('硬件解码'),
             subtitle: const Text('启用硬件加速音频解码'),

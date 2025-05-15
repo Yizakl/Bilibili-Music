@@ -64,9 +64,9 @@ Future<void> main() async {
   final bilibiliApi = BilibiliApi(prefs);
   final authService = AuthService(prefs, bilibiliApi);
   final bilibiliService = BilibiliService(prefs);
-  final audioPlayerManager = AudioPlayerManager();
-  final favoritesService = FavoritesService(prefs);
   final settingsService = SettingsService(prefs);
+  final audioPlayerManager = AudioPlayerManager(settingsService);
+  final favoritesService = FavoritesService(prefs);
 
   // 创建增强版B站服务
   final bilibiliEnhancedService =

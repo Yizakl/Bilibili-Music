@@ -51,10 +51,9 @@ class _PlayerPageState extends State<PlayerPage> {
       final bilibiliService = context.read<BilibiliService>();
 
       // 尝试播放音频
-      await player.playAudio(widget.audioItem);
-
-      // 如果播放失败（无法获取音频URL），尝试使用备用API
-      if (!player.isPlaying && widget.audioItem.audioUrl.isEmpty) {
+      if (widget.audioItem.audioUrl.isNotEmpty) {
+        await player.playAudio(widget.audioItem);
+      } else {
         // 获取视频详情中的cid
         final videoDetail =
             await bilibiliService.getVideoDetail(widget.audioItem.id);

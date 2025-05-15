@@ -2,15 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import '../models/advanced_settings.dart';
+import '../models/settings.dart';
 
 class SettingsService extends ChangeNotifier {
   late SharedPreferences _prefs;
   ThemeMode _themeMode = ThemeMode.system;
-  bool _isHighQualityEnabled = true;
+  String _audioQuality = 'standard';
   AdvancedSettings _advancedSettings = const AdvancedSettings();
 
   static const String _themeModeKey = 'theme_mode';
-  static const String _highQualityKey = 'high_quality_enabled';
+  static const String _audioQualityKey = 'audio_quality';
   static const String _advancedSettingsKey = 'advanced_settings';
 
   SettingsService(SharedPreferences prefs) {
@@ -20,18 +21,26 @@ class SettingsService extends ChangeNotifier {
 
   // Getters
   ThemeMode get themeMode => _themeMode;
-  bool get isHighQualityEnabled => _isHighQualityEnabled;
+  String get audioQuality => _audioQuality;
+  bool get isHighQualityEnabled => _audioQuality == 'high';
   AdvancedSettings get advancedSettings => _advancedSettings;
+
+  // 获取所有设置
+  Settings get settings => Settings(
+        themeMode: _themeMode,
+        audioQuality: _audioQuality,
+        advancedSettings: _advancedSettings,
+      );
 
   // 从SharedPreferences加载设置
   void _loadSettings() {
     try {
       // 主题模式 (0=跟随系统, 1=浅色, 2=深色)
-      final themeMode = _prefs.getInt('theme_mode') ?? 0;
+      final themeMode = _prefs.getInt(_themeModeKey) ?? 0;
       _themeMode = ThemeMode.values[themeMode.clamp(0, 2)];
 
       // 加载音质设置
-      _isHighQualityEnabled = _prefs.getBool(_highQualityKey) ?? true;
+      _audioQuality = _prefs.getString(_audioQualityKey) ?? 'standard';
 
       // 加载高级设置
       final advancedSettingsJson = _prefs.getString(_advancedSettingsKey);
@@ -41,16 +50,16 @@ class SettingsService extends ChangeNotifier {
               AdvancedSettings.fromJson(json.decode(advancedSettingsJson));
         } catch (e) {
           debugPrint('解析高级设置失败: $e，将使用默认设置');
-          _advancedSettings = AdvancedSettings();
+          _advancedSettings = const AdvancedSettings();
         }
       } else {
-        _advancedSettings = AdvancedSettings();
+        _advancedSettings = const AdvancedSettings();
       }
     } catch (e) {
       debugPrint('加载设置失败: $e，将使用默认设置');
       _themeMode = ThemeMode.system;
-      _isHighQualityEnabled = true;
-      _advancedSettings = AdvancedSettings();
+      _audioQuality = 'standard';
+      _advancedSettings = const AdvancedSettings();
     }
 
     notifyListeners();
@@ -64,10 +73,15 @@ class SettingsService extends ChangeNotifier {
   }
 
   // 设置音质
-  Future<void> setHighQuality(bool isEnabled) async {
-    _isHighQualityEnabled = isEnabled;
-    await _prefs.setBool(_highQualityKey, isEnabled);
+  Future<void> setAudioQuality(String quality) async {
+    _audioQuality = quality;
+    await _prefs.setString(_audioQualityKey, quality);
     notifyListeners();
+  }
+
+  // 设置高品质
+  Future<void> setHighQuality(bool enabled) async {
+    await setAudioQuality(enabled ? 'high' : 'standard');
   }
 
   // 更新高级设置
@@ -81,6 +95,12 @@ class SettingsService extends ChangeNotifier {
   // 更新音频API来源
   Future<void> setAudioApiSource(AudioApiSource source) async {
     final newSettings = _advancedSettings.copyWith(audioApiSource: source);
+    await updateAdvancedSettings(newSettings);
+  }
+
+  // 更新播放模式
+  Future<void> setPlaybackMode(PlaybackMode mode) async {
+    final newSettings = _advancedSettings.copyWith(playbackMode: mode);
     await updateAdvancedSettings(newSettings);
   }
 }
