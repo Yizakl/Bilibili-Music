@@ -185,7 +185,12 @@ class AudioPlayerManager extends ChangeNotifier {
       _currentAudio = item;
       currentItemNotifier.value = item;
 
+      // 先停止当前播放
       await _audioPlayer.stop();
+
+      // 重置状态
+      _position = Duration.zero;
+      positionNotifier.value = _position;
 
       // 设置音频源
       try {
@@ -198,48 +203,49 @@ class AudioPlayerManager extends ChangeNotifier {
             artUri: Uri.parse(item.thumbnail),
             displayTitle: item.title,
             displaySubtitle: item.uploader,
-            duration: _duration,
             album: '哔哩哔哩音乐',
           ),
         );
-        await _audioPlayer.setAudioSource(audioSource);
-      } catch (e) {
-        if (kDebugMode) {
-          print('设置音频源失败: $e');
-        }
-        statusNotifier.value = '设置音频源失败: $e';
-        isLoadingNotifier.value = false;
-        return;
-      }
 
-      // 开始播放
-      try {
+        await _audioPlayer.setAudioSource(audioSource);
+
+        // 设置音量和播放速度
+        await _audioPlayer.setVolume(_volume);
+        await _audioPlayer.setSpeed(_speed);
+
+        // 开始播放
         await _audioPlayer.play();
+
         _isPlaying = true;
         isPlayingNotifier.value = true;
         statusNotifier.value = '正在播放';
-      } catch (e) {
-        if (kDebugMode) {
-          print('开始播放失败: $e');
+
+        // 更新播放列表状态
+        if (!playlist.contains(item)) {
+          playlistNotifier.value = [...playlist, item];
+          _currentIndex = playlist.length - 1;
+        } else {
+          _currentIndex = playlist.indexOf(item);
         }
-        statusNotifier.value = '开始播放失败: $e';
-        _isPlaying = false;
-        isPlayingNotifier.value = false;
+      } catch (e) {
+        debugPrint('设置音频源失败: $e');
+        statusNotifier.value = '音频加载失败，请重试';
+        isLoadingNotifier.value = false;
+        return;
       }
     } catch (e) {
-      if (kDebugMode) {
-        print('播放失败: $e');
-      }
+      debugPrint('播放失败: $e');
       statusNotifier.value = '播放失败: $e';
+      isLoadingNotifier.value = false;
       _isPlaying = false;
       isPlayingNotifier.value = false;
-    } finally {
-      isLoadingNotifier.value = false;
     }
   }
 
-  Future<void> playAudioWithCustomHeaders(AudioItem item,
-      {Map<String, String>? headers}) async {
+  Future<void> playAudioWithCustomHeaders(
+    AudioItem item, {
+    required Map<String, String> headers,
+  }) async {
     if (item.audioUrl.isEmpty) {
       statusNotifier.value = '无效的音频链接';
       return;
@@ -252,53 +258,61 @@ class AudioPlayerManager extends ChangeNotifier {
       _currentAudio = item;
       currentItemNotifier.value = item;
 
+      // 先停止当前播放
       await _audioPlayer.stop();
+
+      // 重置状态
+      _position = Duration.zero;
+      positionNotifier.value = _position;
 
       // 设置音频源
       try {
         final audioSource = AudioSource.uri(
           Uri.parse(item.audioUrl),
-          headers: headers,
           tag: MediaItem(
             id: item.id,
             title: item.title,
             artist: item.uploader,
             artUri: Uri.parse(item.thumbnail),
+            displayTitle: item.title,
+            displaySubtitle: item.uploader,
+            album: '哔哩哔哩音乐',
           ),
+          headers: headers,
         );
-        await _audioPlayer.setAudioSource(audioSource);
-      } catch (e) {
-        if (kDebugMode) {
-          print('设置音频源失败: $e');
-        }
-        statusNotifier.value = '设置音频源失败: $e';
-        isLoadingNotifier.value = false;
-        return;
-      }
 
-      // 开始播放
-      try {
+        await _audioPlayer.setAudioSource(audioSource);
+
+        // 设置音量和播放速度
+        await _audioPlayer.setVolume(_volume);
+        await _audioPlayer.setSpeed(_speed);
+
+        // 开始播放
         await _audioPlayer.play();
+
         _isPlaying = true;
         isPlayingNotifier.value = true;
         statusNotifier.value = '正在播放';
-      } catch (e) {
-        if (kDebugMode) {
-          print('开始播放失败: $e');
+
+        // 更新播放列表状态
+        if (!playlist.contains(item)) {
+          playlistNotifier.value = [...playlist, item];
+          _currentIndex = playlist.length - 1;
+        } else {
+          _currentIndex = playlist.indexOf(item);
         }
-        statusNotifier.value = '开始播放失败: $e';
-        _isPlaying = false;
-        isPlayingNotifier.value = false;
+      } catch (e) {
+        debugPrint('设置音频源失败: $e');
+        statusNotifier.value = '音频加载失败，请重试';
+        isLoadingNotifier.value = false;
+        return;
       }
     } catch (e) {
-      if (kDebugMode) {
-        print('播放失败: $e');
-      }
+      debugPrint('播放失败: $e');
       statusNotifier.value = '播放失败: $e';
+      isLoadingNotifier.value = false;
       _isPlaying = false;
       isPlayingNotifier.value = false;
-    } finally {
-      isLoadingNotifier.value = false;
     }
   }
 

@@ -97,11 +97,11 @@ class _AudioPlayerPageState extends State<AudioPlayerPage> {
       final int cid =
           _videoItem!.cid != null ? int.tryParse(_videoItem!.cid!) ?? 0 : 0;
 
-      // 使用备用API方式获取音频URL
+      // 使用新的API方式获取音频URL
       final audioUrl =
-          await bilibiliService.getAudioUrlWithFallback(widget.bvid, cid);
+          await bilibiliService.getAudioUrl(widget.bvid, cid: cid.toString());
 
-      if (audioUrl == null || audioUrl.isEmpty) {
+      if (audioUrl.isEmpty) {
         setState(() {
           _statusMessage = "无法获取音频URL";
           _loading = false;
@@ -144,35 +144,58 @@ class _AudioPlayerPageState extends State<AudioPlayerPage> {
       final audioPlayerManager =
           Provider.of<AudioPlayerManager>(context, listen: false);
 
+      setState(() {
+        _statusMessage = "准备播放音频...";
+        _loading = true;
+      });
+
       // 添加状态监听
       audioPlayerManager.statusNotifier.addListener(_updateStatus);
+
+      // 检查音频URL是否有效
+      if (_audioItem!.audioUrl.isEmpty) {
+        throw Exception("音频URL无效");
+      }
 
       // 根据URL类型选择播放方式
       if (_audioItem!.audioUrl.contains('.m4s')) {
         debugPrint("检测到m4s格式，使用特殊处理");
-        await audioPlayerManager
-            .playAudioWithCustomHeaders(_audioItem!, headers: {
-          'Referer': 'https://www.bilibili.com/video/${widget.bvid}',
-          'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          'Accept-Encoding': 'identity;q=1, *;q=0',
-          'Range': 'bytes=0-',
-        });
+        await audioPlayerManager.playAudioWithCustomHeaders(
+          _audioItem!,
+          headers: {
+            'Referer': 'https://www.bilibili.com/video/${widget.bvid}',
+            'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Accept': '*/*',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            'Accept-Encoding': 'identity;q=1, *;q=0',
+            'Range': 'bytes=0-',
+            'Origin': 'https://www.bilibili.com',
+          },
+        );
       } else {
+        debugPrint("使用标准播放方式");
         await audioPlayerManager.playAudio(_audioItem!);
       }
+
+      if (!mounted) return;
 
       setState(() {
         _loading = false;
         _statusMessage = "播放中";
       });
+
+      debugPrint("播放开始: ${_audioItem!.title}");
     } catch (e) {
+      debugPrint("播放失败: $e");
+      if (!mounted) return;
+
       setState(() {
         _statusMessage = "播放失败: $e";
         _loading = false;
       });
-      debugPrint("播放失败: $e");
-      rethrow;
+
+      EasyLoading.showError('播放失败，请重试');
     }
   }
 
@@ -186,7 +209,22 @@ class _AudioPlayerPageState extends State<AudioPlayerPage> {
 
     setState(() {
       _statusMessage = status;
+      // 如果状态包含错误信息，更新loading状态
+      if (status.contains('失败') || status.contains('错误')) {
+        _loading = false;
+      }
     });
+
+    // 显示错误消息
+    if (status.contains('失败') || status.contains('错误')) {
+      EasyLoading.showError(status);
+      // 尝试重新播放
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) {
+          _playAudio();
+        }
+      });
+    }
   }
 
   @override

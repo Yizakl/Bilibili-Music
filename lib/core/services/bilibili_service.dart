@@ -402,215 +402,152 @@ class BilibiliService extends ChangeNotifier {
     }
   }
 
-  // 获取音频URL (优先使用解析API)
+  // 获取音频URL
   Future<String> getAudioUrl(String videoId, {String? cid}) async {
     try {
-      // 如果videoId包含cid（格式：bvid_cid），则分离bvid和cid
-      String bvid = videoId;
-      if (videoId.contains('_')) {
-        final parts = videoId.split('_');
-        bvid = parts[0];
-        cid = parts[1];
-      }
+      debugPrint('开始获取音频URL: $videoId, cid: $cid');
 
-      // 如果没有提供cid，获取视频信息以获取cid
-      if (cid == null) {
-        final videoInfo = await getVideoInfo(bvid);
-        if (videoInfo != null) {
-          cid = videoInfo.cid;
+      // 获取高级设置
+      final String? advancedSettingsJson =
+          _prefs.getString('advanced_settings');
+      bool useOfficialApi = false;
+      bool useHighQuality = false;
+
+      if (advancedSettingsJson != null) {
+        try {
+          final Map<String, dynamic> settings =
+              json.decode(advancedSettingsJson);
+          useOfficialApi = settings['audioApiSource'] == 1; // 1表示使用官方API
+          useHighQuality = settings['audioQuality'] == 'high';
+          debugPrint(
+              '从高级设置中读取 - API来源: ${useOfficialApi ? "官方API" : "第三方API"}, 音质: ${useHighQuality ? "高音质" : "标准音质"}');
+        } catch (e) {
+          debugPrint('解析高级设置失败: $e，将使用默认设置');
         }
       }
 
-      if (cid == null) {
-        debugPrint('无法获取视频cid');
-        return '';
-      }
-
-      debugPrint('开始获取音频URL, bvid: $bvid, cid: $cid');
-
-      // 获取音频URL
-      final response = await _dio.get(
-        'https://api.bilibili.com/x/player/playurl',
-        queryParameters: {
-          'bvid': bvid,
-          'cid': cid,
-          'qn': 0,
-          'fnval': 16,
-          'fourk': 1,
-        },
-        options: Options(
-          headers: {
-            'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Referer': 'https://www.bilibili.com/video/$bvid',
-            'Origin': 'https://www.bilibili.com',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-            'Cookie':
-                'buvid3=${_generateRandomBuvid()}; _uuid=${_generateRandomUuid()};',
-          },
-        ),
-      );
-
-      if (response.statusCode == 200) {
-        final data = response.data['data'];
-        if (data != null &&
-            data['dash'] != null &&
-            data['dash']['audio'] != null) {
-          final audioUrls = data['dash']['audio'] as List;
-          if (audioUrls.isNotEmpty) {
-            // 获取码率最高的音频URL
-            audioUrls.sort((a, b) {
-              int bandwidthA = a['bandwidth'] is int ? a['bandwidth'] : 0;
-              int bandwidthB = b['bandwidth'] is int ? b['bandwidth'] : 0;
-              return bandwidthB.compareTo(bandwidthA);
-            });
-            final audioUrl = audioUrls.first['baseUrl'] ?? '';
-            final displayPart =
-                audioUrl.length > 50 ? audioUrl.substring(0, 50) : audioUrl;
-            debugPrint('成功获取音频URL: $displayPart...');
-            return audioUrl;
-          }
+      // 如果有cid且设置为使用官方API，优先使用官方API
+      if (cid != null && cid.isNotEmpty && useOfficialApi) {
+        debugPrint('尝试使用官方API获取音频');
+        final officialUrl = await _getOfficialAudioUrl(videoId, int.parse(cid));
+        if (officialUrl != null && officialUrl.isNotEmpty) {
+          debugPrint('成功通过官方API获取音频URL');
+          return officialUrl;
         }
       }
 
-      debugPrint('标准方法获取音频URL失败，尝试备用方法');
+      // 如果官方API失败或未设置使用官方API，尝试使用mir6 API
+      debugPrint('尝试使用mir6 API获取音频URL');
+      final mir6Url = await getAudioUrlWithMir6Api(videoId);
+      if (mir6Url != null && mir6Url.isNotEmpty) {
+        debugPrint('成功通过mir6 API获取音频URL');
+        return mir6Url;
+      }
 
-      // 尝试使用备用方法
-      final backupUrl = await _getAudioUrlWithNativeApi(bvid);
+      // 如果mir6 API也失败，使用备用解析API
+      debugPrint('尝试使用备用解析API获取音频URL');
+      final backupUrl = await getAudioUrlWithBackupApi(videoId);
       if (backupUrl.isNotEmpty) {
+        debugPrint('成功通过备用API获取音频URL');
         return backupUrl;
       }
 
+      debugPrint('所有API都无法获取音频URL');
       return '';
     } catch (e) {
       debugPrint('获取音频URL失败: $e');
-
-      // 失败后尝试备用方法
-      try {
-        final backupUrl = await _getAudioUrlWithNativeApi(videoId);
-        if (backupUrl.isNotEmpty) {
-          return backupUrl;
-        }
-      } catch (e2) {
-        debugPrint('备用方法获取音频URL也失败: $e2');
-      }
-
       return '';
     }
   }
 
-  // 公开方法：使用B站官方API获取音频URL
-  Future<String> getAudioUrlWithNativeApi(String videoId) async {
-    return _getAudioUrlWithNativeApi(videoId);
-  }
-
-  // 使用B站官方API获取音频URL
-  Future<String> _getAudioUrlWithNativeApi(String videoId) async {
+  // 使用官方API获取音频URL
+  Future<String?> _getOfficialAudioUrl(String bvid, int cid) async {
     try {
-      if (videoId.isEmpty) {
-        debugPrint('视频ID为空');
-        return '';
-      }
-
-      // 标准化视频ID
-      String standardizedId = videoId;
-      if (!videoId.startsWith('BV') && !videoId.startsWith('av')) {
-        standardizedId = 'BV$videoId';
-      }
-
-      debugPrint('使用官方API获取音频URL，视频ID: $standardizedId');
-
-      // 步骤1: 获取视频详情以获取cid
-      final dio = Dio()
-        ..options.connectTimeout = const Duration(seconds: 15)
-        ..options.receiveTimeout = const Duration(seconds: 15);
-
-      final response = await dio.get(
-        'https://api.bilibili.com/x/web-interface/view',
-        queryParameters: {'bvid': standardizedId},
-        options: Options(
-          headers: {
-            'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Referer': 'https://www.bilibili.com',
-            'Origin': 'https://www.bilibili.com',
-            'Cookie':
-                'buvid3=${_generateRandomBuvid()}; _uuid=${_generateRandomUuid()};',
-          },
-          validateStatus: (status) => status! < 500,
-        ),
-      );
-
-      if (response.statusCode != 200 || response.data['code'] != 0) {
-        debugPrint('获取视频详情失败: ${response.data['message'] ?? "未知错误"}');
-        return '';
-      }
-
-      final String cid = response.data['data']['cid'].toString();
-      debugPrint('获取到视频CID: $cid');
-
-      // 步骤2: 获取音频流URL
-      final playUrlResponse = await dio.get(
-        'https://api.bilibili.com/x/player/playurl',
+      final response = await _dio.get(
+        '$_apiBaseUrl/x/player/playurl',
         queryParameters: {
-          'bvid': standardizedId,
+          'bvid': bvid,
           'cid': cid,
-          'fnval': '16', // 请求dash格式
-          'fnver': '0',
-          'fourk': '1',
+          'qn': 64,
+          'fnval': 16,
+          'fnver': 0,
+          'fourk': 1,
         },
         options: Options(
           headers: {
+            'Referer': 'https://www.bilibili.com/video/$bvid',
             'User-Agent':
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Referer': 'https://www.bilibili.com/video/$standardizedId',
+            'Accept': '*/*',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            'Accept-Encoding': 'identity;q=1, *;q=0',
+            'Range': 'bytes=0-',
             'Origin': 'https://www.bilibili.com',
-            'Cookie':
-                'buvid3=${_generateRandomBuvid()}; _uuid=${_generateRandomUuid()};',
           },
-          validateStatus: (status) => status! < 500,
         ),
       );
 
-      if (playUrlResponse.statusCode != 200 ||
-          playUrlResponse.data['code'] != 0) {
-        debugPrint('获取音频流URL失败: ${playUrlResponse.data['message'] ?? "未知错误"}');
-        return '';
-      }
+      if (response.statusCode == 200 && response.data['code'] == 0) {
+        final data = response.data['data'];
+        if (data != null &&
+            data['dash'] != null &&
+            data['dash']['audio'] != null) {
+          final audioList = data['dash']['audio'] as List;
+          if (audioList.isNotEmpty) {
+            // 根据高级设置选择音质
+            final String? advancedSettingsJson =
+                _prefs.getString('advanced_settings');
+            bool useHighQuality = false;
+            if (advancedSettingsJson != null) {
+              try {
+                final Map<String, dynamic> settings =
+                    json.decode(advancedSettingsJson);
+                useHighQuality = settings['audioQuality'] == 'high';
+              } catch (e) {
+                debugPrint('解析音质设置失败: $e');
+              }
+            }
 
-      final data = playUrlResponse.data['data'];
+            // 如果设置了高音质且有多个音质选项，选择最高音质
+            if (useHighQuality && audioList.length > 1) {
+              // 按码率排序，选择最高码率
+              audioList.sort((a, b) =>
+                  (b['bandwidth'] ?? 0).compareTo(a['bandwidth'] ?? 0));
+              debugPrint('选择高音质音频，码率: ${audioList[0]['bandwidth']}');
+            }
 
-      // 尝试获取dash格式的音频
-      if (data != null &&
-          data['dash'] != null &&
-          data['dash']['audio'] != null) {
-        final audioList = data['dash']['audio'] as List;
-        if (audioList.isNotEmpty) {
-          // 按码率排序
-          audioList.sort(
-              (a, b) => (b['bandwidth'] ?? 0).compareTo(a['bandwidth'] ?? 0));
-          final audioUrl = audioList.first['baseUrl'] as String;
-          debugPrint('成功获取DASH音频URL (最高码率): ${audioUrl.substring(0, 50)}...');
-          return audioUrl;
+            return audioList[0]['baseUrl'] as String;
+          }
         }
       }
-
-      // 如果没有dash格式，尝试获取普通格式
-      if (data != null && data['durl'] != null) {
-        final durlList = data['durl'] as List;
-        if (durlList.isNotEmpty) {
-          final audioUrl = durlList.first['url'] as String;
-          debugPrint('成功获取普通音频URL: ${audioUrl.substring(0, 50)}...');
-          return audioUrl;
-        }
-      }
-
-      debugPrint('无法找到有效的音频URL');
-      return '';
+      return null;
     } catch (e) {
-      debugPrint('使用官方API获取音频URL失败: $e');
-      return '';
+      debugPrint('获取官方音频URL失败: $e');
+      return null;
+    }
+  }
+
+  // 使用备用API获取音频URL
+  Future<String?> _getFallbackAudioUrl(String bvid) async {
+    try {
+      final response = await _dio.get(
+        _mir6ApiBaseUrl,
+        queryParameters: {
+          'url': 'https://www.bilibili.com/video/$bvid',
+          'type': 'json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data;
+        if (data != null && data['url'] != null) {
+          return data['url'] as String;
+        }
+      }
+      return null;
+    } catch (e) {
+      debugPrint('获取备用音频URL失败: $e');
+      return null;
     }
   }
 
@@ -1485,103 +1422,6 @@ class BilibiliService extends ChangeNotifier {
       return null;
     } catch (e) {
       debugPrint('备用API获取音频URL失败: $e');
-      return null;
-    }
-  }
-
-  // 获取音频URL，直接使用备用API，不尝试官方API
-  Future<String?> getAudioUrlWithFallback(String bvid, int cid) async {
-    try {
-      debugPrint('获取音频URL - bvid: $bvid, cid: $cid');
-
-      // 1. 先尝试获取m4s格式的直链
-      try {
-        debugPrint('尝试获取m4s格式音频直链');
-        final response = await Dio().get(
-          'https://api.bilibili.com/x/player/playurl',
-          queryParameters: {
-            'bvid': bvid,
-            'cid': cid,
-            'qn': 0,
-            'fnval': 16,
-            'fourk': 1,
-          },
-          options: Options(
-            headers: {
-              'User-Agent':
-                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-              'Referer': 'https://www.bilibili.com/video/$bvid',
-              'Origin': 'https://www.bilibili.com',
-              'Accept': 'application/json, text/plain, */*',
-              'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-              'Cookie':
-                  'buvid3=${_generateRandomBuvid()}; _uuid=${_generateRandomUuid()};',
-            },
-          ),
-        );
-
-        if (response.statusCode == 200) {
-          final data = response.data['data'];
-          if (data != null &&
-              data['dash'] != null &&
-              data['dash']['audio'] != null) {
-            final audioUrls = data['dash']['audio'] as List;
-            if (audioUrls.isNotEmpty) {
-              // 获取码率最高的音频URL
-              audioUrls.sort((a, b) {
-                int bandwidthA = a['bandwidth'] is int ? a['bandwidth'] : 0;
-                int bandwidthB = b['bandwidth'] is int ? b['bandwidth'] : 0;
-                return bandwidthB.compareTo(bandwidthA);
-              });
-              final audioUrl = audioUrls.first['baseUrl'] ?? '';
-              final displayPart =
-                  audioUrl.length > 50 ? audioUrl.substring(0, 50) : audioUrl;
-              debugPrint('成功获取音频URL: $displayPart...');
-              return audioUrl;
-            }
-          }
-        }
-      } catch (e) {
-        debugPrint('获取m4s音频直链失败: $e');
-      }
-
-      // 2. 尝试mir6 API
-      debugPrint('尝试mir6 API获取音频URL');
-      final mir6Url = await getAudioUrlByMir6Api(bvid);
-      if (mir6Url != null && mir6Url.isNotEmpty) {
-        final displayUrl =
-            mir6Url.length > 50 ? mir6Url.substring(0, 50) : mir6Url;
-        debugPrint('mir6 API获取音频URL成功: $displayUrl...');
-        return mir6Url;
-      }
-
-      // 3. 使用备用解析API
-      debugPrint('mir6 API失败，尝试第二个备用API');
-      final backupUrl = await getAudioUrlWithBackupApi(bvid);
-      if (backupUrl.isNotEmpty) {
-        final displayUrl =
-            backupUrl.length > 50 ? backupUrl.substring(0, 50) : backupUrl;
-        debugPrint('备用API获取音频URL成功: $displayUrl...');
-        return backupUrl;
-      }
-
-      // 4. 尝试直接构造一个URL（使用jx.xz方法）
-      debugPrint('所有API都失败，尝试使用jx.xz解析');
-      final jxUrl =
-          'https://jx.xz.cv/player/?url=https://www.bilibili.com/video/$bvid';
-      debugPrint('jx.xz URL: $jxUrl');
-      return jxUrl;
-    } catch (e) {
-      debugPrint('获取音频URL失败: $e');
-    }
-
-    // 5. 如果所有方法都失败，尝试最终备用方案
-    try {
-      final finalUrl = 'https://api.jhpc.cc/video/parsebili?vid=$bvid';
-      debugPrint('尝试最终备用URL: $finalUrl');
-      return finalUrl;
-    } catch (e) {
-      debugPrint('最终备用方案也失败: $e');
       return null;
     }
   }

@@ -462,7 +462,7 @@ class _HomeTabViewState extends State<HomeTabView> {
 
       // 获取音频URL
       debugPrint('开始获取音频URL');
-      String audioUrl = await bilibiliService.getAudioUrl(video.id, cid: cid);
+      String audioUrl = await bilibiliService.getAudioUrl(video.id);
       debugPrint(
           '获取到的音频URL: ${audioUrl.substring(0, audioUrl.length > 50 ? 50 : audioUrl.length)}...');
 
@@ -477,7 +477,7 @@ class _HomeTabViewState extends State<HomeTabView> {
       if (!audioUrl.startsWith('http')) {
         debugPrint('音频URL无效: $audioUrl');
         // 再次尝试使用备用方法获取音频URL
-        audioUrl = await bilibiliService.getAudioUrlWithNativeApi(video.id);
+        audioUrl = await bilibiliService.getAudioUrl(video.id);
         if (audioUrl.isEmpty || !audioUrl.startsWith('http')) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('获取到的音频URL无效')),
@@ -775,7 +775,7 @@ class _SearchTabViewState extends State<SearchTabView> {
 
       // 获取音频URL
       debugPrint('开始获取音频URL');
-      String audioUrl = await bilibiliService.getAudioUrl(video.id, cid: cid);
+      String audioUrl = await bilibiliService.getAudioUrl(video.id);
       debugPrint(
           '获取到的音频URL: ${audioUrl.substring(0, audioUrl.length > 50 ? 50 : audioUrl.length)}...');
 
@@ -790,7 +790,7 @@ class _SearchTabViewState extends State<SearchTabView> {
       if (!audioUrl.startsWith('http')) {
         debugPrint('音频URL无效: $audioUrl');
         // 再次尝试使用备用方法获取音频URL
-        audioUrl = await bilibiliService.getAudioUrlWithNativeApi(video.id);
+        audioUrl = await bilibiliService.getAudioUrl(video.id);
         if (audioUrl.isEmpty || !audioUrl.startsWith('http')) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('获取到的音频URL无效')),
@@ -1064,7 +1064,7 @@ class _LibraryTabViewState extends State<LibraryTabView> {
 
       // 获取音频URL
       debugPrint('开始获取音频URL');
-      String audioUrl = await bilibiliService.getAudioUrl(video.id, cid: cid);
+      String audioUrl = await bilibiliService.getAudioUrl(video.id);
       debugPrint(
           '获取到的音频URL: ${audioUrl.substring(0, audioUrl.length > 50 ? 50 : audioUrl.length)}...');
 
@@ -1079,7 +1079,7 @@ class _LibraryTabViewState extends State<LibraryTabView> {
       if (!audioUrl.startsWith('http')) {
         debugPrint('音频URL无效: $audioUrl');
         // 再次尝试使用备用方法获取音频URL
-        audioUrl = await bilibiliService.getAudioUrlWithNativeApi(video.id);
+        audioUrl = await bilibiliService.getAudioUrl(video.id);
         if (audioUrl.isEmpty || !audioUrl.startsWith('http')) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('获取到的音频URL无效')),

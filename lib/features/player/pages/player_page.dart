@@ -113,8 +113,7 @@ class _PlayerPageState extends State<PlayerPage> {
           _statusMessage = '获取音频URL...';
         });
 
-        _audioUrl = await _bilibiliService.getAudioUrlWithFallback(
-            bvid, int.parse(widget.cid!));
+        _audioUrl = await _bilibiliService.getAudioUrl(bvid, cid: widget.cid);
       } else {
         setState(() {
           _statusMessage = '获取视频信息...';
@@ -126,8 +125,8 @@ class _PlayerPageState extends State<PlayerPage> {
             _statusMessage = '获取音频URL...';
           });
 
-          _audioUrl = await _bilibiliService.getAudioUrlWithFallback(
-              bvid, int.parse(videoInfo.cid!));
+          _audioUrl =
+              await _bilibiliService.getAudioUrl(bvid, cid: videoInfo.cid);
         }
       }
 

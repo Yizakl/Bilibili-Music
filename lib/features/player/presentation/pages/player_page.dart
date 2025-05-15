@@ -60,11 +60,11 @@ class _PlayerPageState extends State<PlayerPage> {
         if (videoDetail != null && videoDetail.cid != null) {
           final cid = int.tryParse(videoDetail.cid!) ?? 0;
 
-          // 使用备用API获取音频URL
-          final audioUrl = await bilibiliService.getAudioUrlWithFallback(
-              widget.audioItem.id, cid);
+          // 使用新的API获取音频URL
+          final audioUrl = await bilibiliService
+              .getAudioUrl(widget.audioItem.id, cid: cid.toString());
 
-          if (audioUrl != null && audioUrl.isNotEmpty) {
+          if (audioUrl.isNotEmpty) {
             // 使用新的音频URL创建新的AudioItem
             final newAudioItem = widget.audioItem.copyWith(audioUrl: audioUrl);
             // 播放新的音频
