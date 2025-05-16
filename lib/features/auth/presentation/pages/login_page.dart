@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/services/bilibili_service.dart';
+import '../../../../core/services/bilibili_api.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'package:animations/animations.dart';
 
@@ -92,52 +93,113 @@ class _LoginPageState extends State<LoginPage>
   }
 
   Future<void> _generateQRCode() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _qrCodeUrl = null;
+      _qrCodeKey = null;
+    });
+
     try {
-      final qrData = await _bilibiliService.getQRCode();
-      setState(() {
-        _qrCodeUrl = qrData['url'];
-        _qrCodeKey = qrData['key'];
-      });
-      _startQRCodeCheck();
+      final bilibiliApi = BilibiliApi(await SharedPreferences.getInstance());
+      final Map<String, dynamic> qrData = await bilibiliApi.generateQRCode();
+
+      if (qrData['url'] != null && qrData['key'] != null) {
+        setState(() {
+          _qrCodeUrl = qrData['url'];
+          _qrCodeKey = qrData['key'];
+          _isLoading = false;
+        });
+
+        // 开始定时检查二维码状态
+        _startQRCodeStatusCheck(bilibiliApi);
+      } else {
+        // 处理生成二维码失败的情况
+        setState(() {
+          _isLoading = false;
+        });
+        _showErrorSnackBar('无法生成二维码，请重试');
+      }
     } catch (e) {
-      EasyLoading.showError('获取二维码失败: $e');
-    } finally {
-      setState(() => _isLoading = false);
+      debugPrint('生成二维码失败: $e');
+      setState(() {
+        _isLoading = false;
+      });
+      _showErrorSnackBar('生成二维码失败: $e');
     }
   }
 
-  void _startQRCodeCheck() {
+  void _startQRCodeStatusCheck(BilibiliApi bilibiliApi) {
+    // 取消之前的定时器
     _qrCodeTimer?.cancel();
-    _qrCodeTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+
+    // 最大重试次数
+    int maxRetries = 60; // 5分钟内重试
+
+    _qrCodeTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
       if (_qrCodeKey == null) {
         timer.cancel();
         return;
       }
 
       try {
-        final status = await _bilibiliService.checkQRCodeStatus(_qrCodeKey!);
-        if (status['status']) {
+        final result = await bilibiliApi.checkQRCodeStatus(_qrCodeKey!);
+
+        debugPrint('二维码状态检查结果: $result');
+
+        if (result['status'] == 2) {
+          // 登录成功
           timer.cancel();
-          EasyLoading.showSuccess('登录成功');
-          if (mounted) {
-            Navigator.of(context).pop(true);
+          _onLoginSuccess(result);
+        } else if (result['status'] == 0) {
+          // 二维码已过期
+          if (maxRetries <= 0) {
+            timer.cancel();
+            _showErrorSnackBar('二维码已过期，请重新获取');
+            setState(() {
+              _qrCodeUrl = null;
+              _qrCodeKey = null;
+            });
           }
-        } else if (status['message'] == '二维码已失效') {
-          timer.cancel();
-          EasyLoading.showError('二维码已失效，请重新获取');
-          setState(() {
-            _qrCodeUrl = null;
-            _qrCodeKey = null;
-          });
-        } else {
-          EasyLoading.showInfo(status['message']);
+          maxRetries--;
         }
       } catch (e) {
+        debugPrint('检查二维码状态异常: $e');
         timer.cancel();
-        EasyLoading.showError('检查二维码状态失败: $e');
+        _showErrorSnackBar('登录失败: $e');
       }
     });
+  }
+
+  void _onLoginSuccess(Map<String, dynamic> result) {
+    // 处理登录成功的逻辑
+    _showSuccessSnackBar('登录成功');
+
+    // 可能需要保存用户信息
+    if (result['cookies'] != null) {
+      final cookies = result['cookies'];
+      debugPrint('登录成功，获取的Cookie: $cookies');
+    }
+
+    // 关闭二维码页面并返回
+    Navigator.of(context).pop();
+  }
+
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
+
+  void _showSuccessSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green,
+      ),
+    );
   }
 
   Widget _buildCookieInput({

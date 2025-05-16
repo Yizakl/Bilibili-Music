@@ -8,10 +8,12 @@ import 'package:flutter_easyloading/flutter_easyloading.dart';
 
 class AudioPlayerPage extends StatefulWidget {
   final String bvid;
+  final AudioItem? audioItem;
 
   const AudioPlayerPage({
     Key? key,
     required this.bvid,
+    this.audioItem,
   }) : super(key: key);
 
   @override
@@ -28,7 +30,27 @@ class _AudioPlayerPageState extends State<AudioPlayerPage> {
   @override
   void initState() {
     super.initState();
+
+    // 如果传入了 audioItem，直接使用
+    if (widget.audioItem != null) {
+      _audioItem = widget.audioItem;
+      _isDataLoaded = true;
+    }
+
     _loadData();
+
+    // 延迟执行，确保页面完全加载后处理
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final player = context.read<AudioPlayerManager>();
+
+      // 如果当前没有播放，或者播放的不是当前音频，则播放
+      if (!player.isCurrentlyPlaying ||
+          player.currentItemNotifier.value?.id != _audioItem?.id) {
+        if (_audioItem != null) {
+          player.playAudio(_audioItem!);
+        }
+      }
+    });
   }
 
   // 主加载方法
@@ -242,9 +264,11 @@ class _AudioPlayerPageState extends State<AudioPlayerPage> {
 
   @override
   Widget build(BuildContext context) {
+    final player = context.watch<AudioPlayerManager>();
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(_videoItem?.title ?? '加载中...'),
+        title: Text(widget.bvid),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),

@@ -221,6 +221,7 @@ class BilibiliApi {
   Future<Map<String, dynamic>> checkQRCodeStatus(String qrKey) async {
     try {
       if (qrKey.isEmpty) {
+        debugPrint('二维码密钥为空');
         return {'status': 0, 'message': '二维码密钥为空'};
       }
 
@@ -230,85 +231,112 @@ class BilibiliApi {
         body: {'oauthKey': qrKey},
       );
 
+      // 打印完整的响应数据，帮助诊断问题
+      debugPrint('检查二维码状态完整响应: ${response.body}');
+
       final Map<String, dynamic> data = json.decode(response.body);
       debugPrint('检查二维码状态返回: $data');
 
-      // 检查登录是否成功
-      final bool isSuccess =
-          data['status'] == true || data['data'] == 0 || data['status'] == 2;
+      // 更详细的状态判断逻辑
+      bool isSuccess = false;
+      String errorMessage = '未知错误';
 
-      if (isSuccess && data.containsKey('data') && data['data'] is Map) {
-        // 登录成功，保存Cookie
-        final Map<String, String> cookies = {};
+      if (data['code'] == 0) {
+        // 成功登录
+        isSuccess = true;
+        errorMessage = '登录成功';
+      } else if (data['code'] == 86038) {
+        // 二维码已过期
+        errorMessage = '二维码已过期';
+      } else if (data['code'] == 86090) {
+        // 二维码尚未确认
+        errorMessage = '等待扫码确认';
+      }
 
-        // 检查是否有URL参数
-        if (data['data']['url'] != null) {
-          final String url = data['data']['url'];
-          final Uri uri = Uri.parse(url);
+      // 尝试获取Cookie
+      final Map<String, String> cookies = {};
+
+      // 多重检查Cookie获取方式
+      if (data['data'] is Map) {
+        final loginData = data['data'];
+
+        // 检查URL参数
+        if (loginData['url'] != null) {
+          final Uri uri = Uri.parse(loginData['url']);
           final Map<String, String> queryParams = uri.queryParameters;
 
-          // 提取Cookie
-          if (queryParams.containsKey('SESSDATA')) {
-            cookies['SESSDATA'] = queryParams['SESSDATA']!;
-          }
-
-          if (queryParams.containsKey('bili_jct')) {
-            cookies['bili_jct'] = queryParams['bili_jct']!;
-          }
-
-          if (queryParams.containsKey('DedeUserID')) {
-            cookies['DedeUserID'] = queryParams['DedeUserID']!;
-          }
+          _extractCookiesFromParams(queryParams, cookies);
         }
 
-        // 检查是否从响应头中获取cookie
-        if (response.headers['set-cookie'] != null) {
-          final String setCookie = response.headers['set-cookie']!;
-
-          // 解析Set-Cookie头
-          final List<String> cookieParts = setCookie.split(';');
-          for (final part in cookieParts) {
-            if (part.contains('=')) {
-              final List<String> keyValue = part.trim().split('=');
-              final String key = keyValue[0];
-              final String value = keyValue.length > 1 ? keyValue[1] : '';
-
-              if (key == 'SESSDATA' ||
-                  key == 'bili_jct' ||
-                  key == 'DedeUserID') {
-                cookies[key] = value;
-              }
-            }
-          }
-        }
-
-        // 检查token_info字段
-        if (data['data']['token_info'] != null) {
-          final tokenInfo = data['data']['token_info'];
-          if (tokenInfo['SESSDATA'] != null) {
-            cookies['SESSDATA'] = tokenInfo['SESSDATA'];
-          }
-          if (tokenInfo['bili_jct'] != null) {
-            cookies['bili_jct'] = tokenInfo['bili_jct'];
-          }
-          if (tokenInfo['DedeUserID'] != null) {
-            cookies['DedeUserID'] = tokenInfo['DedeUserID'].toString();
-          }
-        }
-
-        // 保存Cookie
-        if (cookies.isNotEmpty) {
-          await setCookies(cookies);
+        // 检查token_info
+        if (loginData['token_info'] is Map) {
+          final tokenInfo = loginData['token_info'];
+          _extractCookiesFromTokenInfo(tokenInfo, cookies);
         }
       }
 
+      // 尝试从响应头获取Cookie
+      if (response.headers['set-cookie'] != null) {
+        _extractCookiesFromHeader(response.headers['set-cookie']!, cookies);
+      }
+
+      // 保存Cookie
+      if (cookies.isNotEmpty) {
+        await setCookies(cookies);
+        debugPrint('成功保存Cookie: $cookies');
+      } else {
+        debugPrint('未能获取到有效的Cookie');
+      }
+
       return {
-        'status': isSuccess ? 2 : data['data'],
-        'message': isSuccess ? '登录成功' : '二维码未确认',
+        'status': isSuccess ? 2 : 0,
+        'message': errorMessage,
+        'cookies': cookies,
       };
     } catch (e) {
-      debugPrint('检查二维码状态失败: $e');
-      return {'status': 0, 'message': '检查失败: $e'};
+      debugPrint('检查二维码状态异常: $e');
+      return {'status': 0, 'message': '检查失败: $e', 'error': e.toString()};
+    }
+  }
+
+  // 辅助方法：从查询参数提取Cookie
+  void _extractCookiesFromParams(
+      Map<String, String> params, Map<String, String> cookies) {
+    final cookieKeys = ['SESSDATA', 'bili_jct', 'DedeUserID'];
+    for (final key in cookieKeys) {
+      if (params.containsKey(key)) {
+        cookies[key] = params[key]!;
+      }
+    }
+  }
+
+  // 辅助方法：从token_info提取Cookie
+  void _extractCookiesFromTokenInfo(
+      Map<dynamic, dynamic> tokenInfo, Map<String, String> cookies) {
+    final cookieKeys = ['SESSDATA', 'bili_jct', 'DedeUserID'];
+    for (final key in cookieKeys) {
+      if (tokenInfo[key] != null) {
+        cookies[key] = tokenInfo[key].toString();
+      }
+    }
+  }
+
+  // 辅助方法：从响应头提取Cookie
+  void _extractCookiesFromHeader(
+      String setCookie, Map<String, String> cookies) {
+    final cookieKeys = ['SESSDATA', 'bili_jct', 'DedeUserID'];
+    final cookieParts = setCookie.split(';');
+
+    for (final part in cookieParts) {
+      final keyValue = part.trim().split('=');
+      if (keyValue.length == 2) {
+        final key = keyValue[0];
+        final value = keyValue[1];
+
+        if (cookieKeys.contains(key)) {
+          cookies[key] = value;
+        }
+      }
     }
   }
 

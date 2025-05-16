@@ -1,28 +1,32 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter/foundation.dart';
+
 import '../../../../core/services/audio_player_manager.dart';
-import '../pages/player_page.dart';
+import '../../../../core/models/audio_item.dart';
+import '../pages/audio_player_page.dart';
 import 'playlist_dialog.dart';
 
-class MiniPlayer extends StatelessWidget {
-  const MiniPlayer({Key? key}) : super(key: key);
+class MiniPlayerWidget extends StatelessWidget {
+  const MiniPlayerWidget({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     final player = context.watch<AudioPlayerManager>();
-    final currentAudio = player.currentAudio;
 
-    if (currentAudio == null) {
+    // 如果没有当前音频，不显示迷你播放器
+    if (player.currentItemNotifier.value == null) {
       return const SizedBox.shrink();
     }
 
     return GestureDetector(
       onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) => PlayerPage(audioItem: currentAudio),
-          ),
-        );
+        final currentAudio = player.currentItemNotifier.value;
+        if (currentAudio != null) {
+          Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => AudioPlayerPage(
+                  bvid: currentAudio.id, audioItem: currentAudio)));
+        }
       },
       child: Container(
         height: 64,
@@ -38,34 +42,42 @@ class MiniPlayer extends StatelessWidget {
         ),
         child: Row(
           children: [
-            // 封面图片
-            Container(
-              width: 48,
-              height: 48,
-              margin: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
+            // 音频缩略图
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: ClipRRect(
                 borderRadius: BorderRadius.circular(4),
-                image: DecorationImage(
-                  image: NetworkImage(currentAudio.fixedThumbnail),
+                child: Image.network(
+                  player.currentItemNotifier.value?.thumbnail ?? '',
+                  width: 48,
+                  height: 48,
                   fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      width: 48,
+                      height: 48,
+                      color: Colors.grey[300],
+                      child: const Icon(Icons.music_note),
+                    );
+                  },
                 ),
               ),
             ),
 
-            // 歌曲信息
+            // 音频标题和艺术家
             Expanded(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    currentAudio.title,
+                    player.currentItemNotifier.value?.title ?? '未播放',
                     style: Theme.of(context).textTheme.titleMedium,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                   Text(
-                    currentAudio.uploader,
+                    player.currentItemNotifier.value?.uploader ?? '',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Colors.grey[600],
                         ),
@@ -76,7 +88,7 @@ class MiniPlayer extends StatelessWidget {
               ),
             ),
 
-            // 播放控制
+            // 播放控制按钮
             Row(
               children: [
                 // 播放列表
@@ -97,16 +109,24 @@ class MiniPlayer extends StatelessWidget {
                 ),
 
                 // 播放/暂停
-                IconButton(
-                  icon: Icon(
-                    player.isPlaying ? Icons.pause : Icons.play_arrow,
-                  ),
-                  onPressed: () {
-                    if (player.isPlaying) {
-                      player.pause();
-                    } else {
-                      player.resume();
-                    }
+                ValueListenableBuilder<bool>(
+                  valueListenable: player.isPlayingNotifier,
+                  builder: (context, isPlaying, child) {
+                    return IconButton(
+                      icon: Icon(
+                        isPlaying ? Icons.pause : Icons.play_arrow,
+                      ),
+                      onPressed: () {
+                        if (isPlaying) {
+                          player.pause();
+                        } else {
+                          final currentAudio = player.currentItemNotifier.value;
+                          if (currentAudio != null) {
+                            player.resume();
+                          }
+                        }
+                      },
+                    );
                   },
                 ),
 

@@ -42,6 +42,9 @@ class AudioPlayerManager extends ChangeNotifier {
   final ValueNotifier<double> playbackSpeedNotifier =
       ValueNotifier<double>(1.0);
 
+  // 添加一个标志来防止意外暂停
+  bool _preventAutoStop = false;
+
   // Getters
   String? get currentUrl => _currentUrl;
   bool get isPlaying => _isPlaying;
@@ -172,11 +175,17 @@ class AudioPlayerManager extends ChangeNotifier {
     }
   }
 
-  Future<void> playAudio(AudioItem item) async {
-    if (item.audioUrl.isEmpty) {
-      statusNotifier.value = '无效的音频链接';
+  Future<void> playAudio(AudioItem item, {bool forceRestart = false}) async {
+    // 如果当前正在播放同一个音频，且不强制重新开始，则不执行重新播放
+    if (!forceRestart &&
+        _currentAudio != null &&
+        _currentAudio!.id == item.id &&
+        _isPlaying) {
       return;
     }
+
+    // 防止意外暂停
+    _preventAutoStop = true;
 
     try {
       isLoadingNotifier.value = true;
@@ -193,45 +202,35 @@ class AudioPlayerManager extends ChangeNotifier {
       positionNotifier.value = _position;
 
       // 设置音频源
-      try {
-        final audioSource = AudioSource.uri(
-          Uri.parse(item.audioUrl),
-          tag: MediaItem(
-            id: item.id,
-            title: item.title,
-            artist: item.uploader,
-            artUri: Uri.parse(item.thumbnail),
-            displayTitle: item.title,
-            displaySubtitle: item.uploader,
-            album: '哔哩哔哩音乐',
-          ),
-        );
+      final audioSource = AudioSource.uri(
+        Uri.parse(item.audioUrl),
+        tag: MediaItem(
+          id: item.id,
+          title: item.title,
+          artist: item.uploader,
+          artUri: Uri.parse(item.thumbnail),
+          displayTitle: item.title,
+          displaySubtitle: item.uploader,
+          album: '哔哩哔哩音乐',
+        ),
+      );
 
-        await _audioPlayer.setAudioSource(audioSource);
+      await _audioPlayer.setAudioSource(audioSource);
+      await _audioPlayer.setVolume(_volume);
+      await _audioPlayer.setSpeed(_speed);
 
-        // 设置音量和播放速度
-        await _audioPlayer.setVolume(_volume);
-        await _audioPlayer.setSpeed(_speed);
+      // 开始播放
+      await _audioPlayer.play();
+      _isPlaying = true;
+      isPlayingNotifier.value = true;
+      statusNotifier.value = '正在播放';
 
-        // 开始播放
-        await _audioPlayer.play();
-
-        _isPlaying = true;
-        isPlayingNotifier.value = true;
-        statusNotifier.value = '正在播放';
-
-        // 更新播放列表状态
-        if (!playlist.contains(item)) {
-          playlistNotifier.value = [...playlist, item];
-          _currentIndex = playlist.length - 1;
-        } else {
-          _currentIndex = playlist.indexOf(item);
-        }
-      } catch (e) {
-        debugPrint('设置音频源失败: $e');
-        statusNotifier.value = '音频加载失败，请重试';
-        isLoadingNotifier.value = false;
-        return;
+      // 更新播放列表状态
+      if (!playlist.contains(item)) {
+        playlistNotifier.value = [...playlist, item];
+        _currentIndex = playlist.length - 1;
+      } else {
+        _currentIndex = playlist.indexOf(item);
       }
     } catch (e) {
       debugPrint('播放失败: $e');
@@ -239,6 +238,8 @@ class AudioPlayerManager extends ChangeNotifier {
       isLoadingNotifier.value = false;
       _isPlaying = false;
       isPlayingNotifier.value = false;
+    } finally {
+      _preventAutoStop = false;
     }
   }
 
@@ -317,19 +318,11 @@ class AudioPlayerManager extends ChangeNotifier {
   }
 
   Future<void> pause() async {
-    if (_isPlaying) {
-      try {
-        await _audioPlayer.pause();
-        _isPlaying = false;
-        isPlayingNotifier.value = false;
-        statusNotifier.value = '已暂停';
-      } catch (e) {
-        if (kDebugMode) {
-          print('暂停失败: $e');
-        }
-        statusNotifier.value = '暂停失败: $e';
-      }
-    }
+    if (_preventAutoStop) return;
+
+    await _audioPlayer.pause();
+    _isPlaying = false;
+    isPlayingNotifier.value = false;
   }
 
   Future<void> resume() async {
@@ -351,6 +344,8 @@ class AudioPlayerManager extends ChangeNotifier {
   }
 
   Future<void> stopAudio() async {
+    if (_preventAutoStop) return;
+
     try {
       await _audioPlayer.stop();
       _currentUrl = null;
@@ -506,6 +501,9 @@ class AudioPlayerManager extends ChangeNotifier {
     _isLoopMode = !_isLoopMode;
     notifyListeners();
   }
+
+  // 添加一个方法来检查当前是否正在播放
+  bool get isCurrentlyPlaying => _isPlaying && _currentAudio != null;
 
   @override
   void dispose() {
