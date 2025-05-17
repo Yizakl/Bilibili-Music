@@ -39,7 +39,7 @@ class _LoginPageState extends State<LoginPage>
 
   Future<void> _initBilibiliService() async {
     final prefs = await SharedPreferences.getInstance();
-    _bilibiliService = BilibiliService(prefs);
+    _bilibiliService = BilibiliService(prefs: prefs);
   }
 
   @override

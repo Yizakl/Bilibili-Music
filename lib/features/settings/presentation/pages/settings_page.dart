@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/services/auth_service.dart';
 import '../../../../core/services/settings_service.dart';
 import '../../../../core/models/user.dart';
@@ -16,6 +17,26 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
+  bool _isPCMode = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // 直接从 Provider 获取 SettingsService
+    final settingsService =
+        Provider.of<SettingsService>(context, listen: false);
+    _isPCMode = settingsService.isPCMode;
+  }
+
+  void _togglePCMode(bool value) {
+    final settingsService =
+        Provider.of<SettingsService>(context, listen: false);
+    settingsService.setPCMode(value);
+    setState(() {
+      _isPCMode = value;
+    });
+  }
+
   void _navigateToLogin() {
     context.push('/login');
   }
@@ -83,8 +104,8 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final authService = Provider.of<AuthService>(context);
     final settingsService = Provider.of<SettingsService>(context);
+    final authService = Provider.of<AuthService>(context);
     final user = authService.currentUser;
 
     // 获取设置数据
@@ -150,6 +171,33 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
 
           const Divider(),
+
+          // PC 界面切换选项
+          SwitchListTile(
+            title: const Text('PC 界面模式'),
+            subtitle: const Text('切换到类似 QQ 音乐/网易云音乐的 PC 端界面'),
+            value: _isPCMode,
+            onChanged: _togglePCMode,
+          ),
+
+          // 音频质量设置
+          ListTile(
+            title: const Text('音频质量'),
+            subtitle: Text(settingsService.audioQuality),
+            onTap: () {
+              _showAudioQualityDialog();
+            },
+          ),
+
+          // 主题设置
+          ListTile(
+            title: const Text('主题'),
+            subtitle:
+                Text(settingsService.themeMode.toString().split('.').last),
+            onTap: () {
+              _showThemeModeDialog();
+            },
+          ),
 
           // 关于
           ListTile(
@@ -280,6 +328,88 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ],
       ),
+    );
+  }
+
+  void _showAudioQualityDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('选择音频质量'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              RadioListTile(
+                title: const Text('标准'),
+                value: 'standard',
+                groupValue: Provider.of<SettingsService>(context).audioQuality,
+                onChanged: (value) {
+                  Provider.of<SettingsService>(context, listen: false)
+                      .setAudioQuality('standard');
+                  Navigator.of(context).pop();
+                },
+              ),
+              RadioListTile(
+                title: const Text('高质量'),
+                value: 'high',
+                groupValue: Provider.of<SettingsService>(context).audioQuality,
+                onChanged: (value) {
+                  Provider.of<SettingsService>(context, listen: false)
+                      .setAudioQuality('high');
+                  Navigator.of(context).pop();
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showThemeModeDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('选择主题模式'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              RadioListTile(
+                title: const Text('跟随系统'),
+                value: ThemeMode.system,
+                groupValue: Provider.of<SettingsService>(context).themeMode,
+                onChanged: (value) {
+                  Provider.of<SettingsService>(context, listen: false)
+                      .setThemeMode(ThemeMode.system);
+                  Navigator.of(context).pop();
+                },
+              ),
+              RadioListTile(
+                title: const Text('浅色'),
+                value: ThemeMode.light,
+                groupValue: Provider.of<SettingsService>(context).themeMode,
+                onChanged: (value) {
+                  Provider.of<SettingsService>(context, listen: false)
+                      .setThemeMode(ThemeMode.light);
+                  Navigator.of(context).pop();
+                },
+              ),
+              RadioListTile(
+                title: const Text('深色'),
+                value: ThemeMode.dark,
+                groupValue: Provider.of<SettingsService>(context).themeMode,
+                onChanged: (value) {
+                  Provider.of<SettingsService>(context, listen: false)
+                      .setThemeMode(ThemeMode.dark);
+                  Navigator.of(context).pop();
+                },
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

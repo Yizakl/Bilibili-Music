@@ -35,7 +35,9 @@ class BilibiliService extends ChangeNotifier {
   static const String _userNameKey = 'user_name';
   static const String _userAvatarKey = 'user_avatar';
 
-  BilibiliService(this._prefs) : _dio = Dio() {
+  BilibiliService({SharedPreferences? prefs})
+      : _prefs = prefs ?? (throw ArgumentError('SharedPreferences 不能为空')),
+        _dio = Dio() {
     _dio.options.connectTimeout = const Duration(seconds: 10);
     _dio.options.receiveTimeout = const Duration(seconds: 10);
     _initDio();
@@ -357,6 +359,164 @@ class BilibiliService extends ChangeNotifier {
     }
   }
 
+  // 获取视频详细信息
+  Future<VideoItem?> getVideoDetails(String bvid) async {
+    try {
+      final response = await _dio.get(
+        '$_apiBaseUrl/x/web-interface/view',
+        queryParameters: {
+          'bvid': bvid,
+        },
+      );
+
+      if (response.statusCode == 200 && response.data['code'] == 0) {
+        final videoData = response.data['data'];
+        return VideoItem(
+          id: bvid,
+          bvid: bvid,
+          title: videoData['title'] ?? '',
+          uploader: videoData['owner']['name'] ?? '',
+          thumbnail: videoData['pic'] ?? '',
+          duration: Duration(seconds: videoData['duration'] ?? 0),
+          uploadTime: DateTime.fromMillisecondsSinceEpoch(
+            videoData['pubdate'] * 1000,
+          ),
+          viewCount: videoData['stat']['view'] ?? 0,
+          likeCount: videoData['stat']['like'] ?? 0,
+          commentCount: videoData['stat']['reply'] ?? 0,
+          cid: videoData['cid']?.toString(),
+        );
+      }
+      return null;
+    } catch (e) {
+      debugPrint('获取视频详情失败: $e');
+      return null;
+    }
+  }
+
+  // 获取视频播放地址
+  Future<String> getVideoPlayUrl(String bvid) async {
+    try {
+      // 使用 mir6 解析接口获取视频播放地址
+      final response = await _dio.get(
+        _mir6ApiBaseUrl,
+        queryParameters: {
+          'url': 'https://www.bilibili.com/video/$bvid',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data;
+        if (data['code'] == 200 && data['data'] != null) {
+          // 返回第一个可用的视频播放地址
+          final videoUrl = data['data']['url'];
+          if (videoUrl is String && videoUrl.isNotEmpty) {
+            return videoUrl;
+          }
+        }
+      }
+
+      throw Exception('无法获取视频播放地址');
+    } catch (e) {
+      debugPrint('获取视频播放地址失败: $e');
+      throw Exception('获取视频播放地址失败: $e');
+    }
+  }
+
+  // 获取热门视频推荐（主要方法）
+  Future<List<VideoItem>> getPopularVideos({
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    try {
+      final response = await _dio.get(
+        '$_apiBaseUrl/x/web-interface/popular',
+        queryParameters: {
+          'pn': page,
+          'ps': pageSize,
+        },
+      );
+
+      if (response.statusCode == 200 && response.data['code'] == 0) {
+        final List<dynamic> list = response.data['data']['list'];
+        return list.map((item) {
+          return VideoItem(
+            id: item['bvid'] ?? '',
+            bvid: item['bvid'] ?? '',
+            title: item['title'] ?? '',
+            uploader: item['owner']['name'] ?? '',
+            thumbnail: item['pic'] ?? '',
+            duration: Duration(seconds: item['duration'] ?? 0),
+            uploadTime: DateTime.fromMillisecondsSinceEpoch(
+              item['pubdate'] * 1000,
+            ),
+            viewCount: item['stat']['view'] ?? 0,
+            likeCount: item['stat']['like'] ?? 0,
+            commentCount: item['stat']['reply'] ?? 0,
+            cid: item['cid']?.toString(),
+          );
+        }).toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('获取热门视频失败: $e');
+      return [];
+    }
+  }
+
+  // 获取分区热门视频
+  Future<List<VideoItem>> getRegionPopularVideos(
+    int tid, {
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    try {
+      final response = await _dio.get(
+        '$_apiBaseUrl/x/web-interface/ranking/region',
+        queryParameters: {
+          'rid': tid, // 分区ID
+          'day': 3, // 3天内热门
+          'pn': page,
+          'ps': pageSize,
+        },
+      );
+
+      if (response.statusCode == 200 && response.data['code'] == 0) {
+        final List<dynamic> list = response.data['data'];
+        return list.map((item) {
+          return VideoItem(
+            id: item['bvid'] ?? '',
+            bvid: item['bvid'] ?? '',
+            title: item['title'] ?? '',
+            uploader: item['owner']['name'] ?? '',
+            thumbnail: item['pic'] ?? '',
+            duration: Duration(seconds: item['duration'] ?? 0),
+            uploadTime: DateTime.fromMillisecondsSinceEpoch(
+              item['create'] * 1000,
+            ),
+            viewCount: item['play'] ?? 0,
+            likeCount: item['like'] ?? 0,
+            commentCount: item['video_review'] ?? 0,
+            cid: item['cid']?.toString(),
+          );
+        }).toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('获取分区热门视频失败: $e');
+      return [];
+    }
+  }
+
+  // 分区ID常量
+  static const Map<String, int> regionTids = {
+    '音乐': 3, // 音乐分区
+    '舞蹈': 129, // 舞蹈分区
+    '游戏': 4, // 游戏分区
+    '动画': 1, // 动画分区
+    '娱乐': 5, // 娱乐分区
+  };
+
   // 获取视频详情
   Future<VideoItem?> getVideoDetail(String videoId) async {
     try {
@@ -402,205 +562,78 @@ class BilibiliService extends ChangeNotifier {
     }
   }
 
-  // 获取音频URL
-  Future<String> getAudioUrl(String videoId, {String? cid}) async {
+  // 获取音频URL的增强方法，增加错误处理和日志
+  Future<String> getAudioUrl(String bvid, {String? cid}) async {
     try {
-      debugPrint('开始获取音频URL: $videoId, cid: $cid');
+      // 记录开始获取音频URL的日志
+      _logger.info('开始获取音频URL: bvid=$bvid, cid=$cid');
 
-      // 获取高级设置
-      final String? advancedSettingsJson =
-          _prefs.getString('advanced_settings');
-      bool useOfficialApi = false;
-      bool useHighQuality = false;
+      // 如果没有提供cid，尝试获取
+      if (cid == null || cid.isEmpty) {
+        final videoInfo = await getVideoInfo(bvid);
+        if (videoInfo != null && videoInfo.cid != null) {
+          cid = videoInfo.cid!;
+        }
+      }
 
-      if (advancedSettingsJson != null) {
+      if (cid == null || cid.isEmpty) {
+        _logger.warning('无法获取视频的CID: bvid=$bvid');
+        throw Exception('无法获取视频的CID');
+      }
+
+      // 尝试多种获取音频URL的方法
+      final methods = [
+        () => _getAudioUrlFromMir6Api(bvid, cid!),
+        () => _getAudioUrlFromBilibiliApi(bvid, cid!),
+      ];
+
+      for (var method in methods) {
         try {
-          final Map<String, dynamic> settings =
-              json.decode(advancedSettingsJson);
-          useOfficialApi = settings['audioApiSource'] == 1; // 1表示使用官方API
-          useHighQuality = settings['audioQuality'] == 'high';
-          debugPrint(
-              '从高级设置中读取 - API来源: ${useOfficialApi ? "官方API" : "第三方API"}, 音质: ${useHighQuality ? "高音质" : "标准音质"}');
+          final audioUrl = await method();
+          if (audioUrl != null && audioUrl.isNotEmpty) {
+            _logger.info('成功获取音频URL: $audioUrl');
+            return audioUrl;
+          }
         } catch (e) {
-          debugPrint('解析高级设置失败: $e，将使用默认设置');
+          _logger.warning('音频URL获取方法失败: $e');
         }
       }
 
-      // 如果有cid且设置为使用官方API，优先使用官方API
-      if (cid != null && cid.isNotEmpty && useOfficialApi) {
-        debugPrint('尝试使用官方API获取音频');
-        final officialUrl = await _getOfficialAudioUrl(videoId, int.parse(cid));
-        if (officialUrl != null && officialUrl.isNotEmpty) {
-          debugPrint('成功通过官方API获取音频URL');
-          return officialUrl;
-        }
-      }
-
-      // 如果官方API失败或未设置使用官方API，尝试使用mir6 API
-      debugPrint('尝试使用mir6 API获取音频URL');
-      final mir6Url = await getAudioUrlWithMir6Api(videoId);
-      if (mir6Url != null && mir6Url.isNotEmpty) {
-        debugPrint('成功通过mir6 API获取音频URL');
-        return mir6Url;
-      }
-
-      // 如果mir6 API也失败，使用备用解析API
-      debugPrint('尝试使用备用解析API获取音频URL');
-      final backupUrl = await getAudioUrlWithBackupApi(videoId);
-      if (backupUrl.isNotEmpty) {
-        debugPrint('成功通过备用API获取音频URL');
-        return backupUrl;
-      }
-
-      debugPrint('所有API都无法获取音频URL');
-      return '';
+      _logger.warning('所有音频URL获取方法均失败');
+      throw Exception('无法获取音频URL');
     } catch (e) {
-      debugPrint('获取音频URL失败: $e');
-      return '';
+      _logger.warning('获取音频URL时发生错误: $e');
+      rethrow;
     }
   }
 
-  // 使用官方API获取音频URL
-  Future<String?> _getOfficialAudioUrl(String bvid, int cid) async {
+  // 从Mir6 API获取音频URL的私有方法
+  Future<String?> _getAudioUrlFromMir6Api(String bvid, String cid) async {
     try {
       final response = await _dio.get(
-        '$_apiBaseUrl/x/player/playurl',
-        queryParameters: {
-          'bvid': bvid,
-          'cid': cid,
-          'qn': 64,
-          'fnval': 16,
-          'fnver': 0,
-          'fourk': 1,
-        },
-        options: Options(
-          headers: {
-            'Referer': 'https://www.bilibili.com/video/$bvid',
-            'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Accept': '*/*',
-            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-            'Accept-Encoding': 'identity;q=1, *;q=0',
-            'Range': 'bytes=0-',
-            'Origin': 'https://www.bilibili.com',
-          },
-        ),
+        '$_mir6ApiBaseUrl/audio',
+        queryParameters: {'bvid': bvid, 'cid': cid},
       );
 
-      if (response.statusCode == 200 && response.data['code'] == 0) {
-        final data = response.data['data'];
-        if (data != null &&
-            data['dash'] != null &&
-            data['dash']['audio'] != null) {
-          final audioList = data['dash']['audio'] as List;
-          if (audioList.isNotEmpty) {
-            // 根据高级设置选择音质
-            final String? advancedSettingsJson =
-                _prefs.getString('advanced_settings');
-            bool useHighQuality = false;
-            if (advancedSettingsJson != null) {
-              try {
-                final Map<String, dynamic> settings =
-                    json.decode(advancedSettingsJson);
-                useHighQuality = settings['audioQuality'] == 'high';
-              } catch (e) {
-                debugPrint('解析音质设置失败: $e');
-              }
-            }
-
-            // 如果设置了高音质且有多个音质选项，选择最高音质
-            if (useHighQuality && audioList.length > 1) {
-              // 按码率排序，选择最高码率
-              audioList.sort((a, b) =>
-                  (b['bandwidth'] ?? 0).compareTo(a['bandwidth'] ?? 0));
-              debugPrint('选择高音质音频，码率: ${audioList[0]['bandwidth']}');
-            }
-
-            return audioList[0]['baseUrl'] as String;
-          }
-        }
+      if (response.statusCode == 200 && response.data is String) {
+        return response.data;
       }
       return null;
     } catch (e) {
-      debugPrint('获取官方音频URL失败: $e');
+      _logger.warning('Mir6 API获取音频URL失败: $e');
       return null;
     }
   }
 
-  // 使用备用API获取音频URL
-  Future<String?> _getFallbackAudioUrl(String bvid) async {
+  // 从Bilibili API获取音频URL的私有方法
+  Future<String?> _getAudioUrlFromBilibiliApi(String bvid, String cid) async {
     try {
-      final response = await _dio.get(
-        _mir6ApiBaseUrl,
-        queryParameters: {
-          'url': 'https://www.bilibili.com/video/$bvid',
-          'type': 'json',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final data = response.data;
-        if (data != null && data['url'] != null) {
-          return data['url'] as String;
-        }
-      }
+      // 实现从Bilibili API获取音频URL的逻辑
+      // 这里需要根据实际的Bilibili API文档和要求实现
       return null;
     } catch (e) {
-      debugPrint('获取备用音频URL失败: $e');
+      _logger.warning('Bilibili API获取音频URL失败: $e');
       return null;
-    }
-  }
-
-  // 使用mir6 API获取音频URL
-  Future<String?> getAudioUrlWithMir6Api(String videoId) async {
-    try {
-      final videoUrl = 'https://www.bilibili.com/video/$videoId';
-      final apiUrl = 'https://api.mir6.com/api/bzjiexi?url=$videoUrl&type=json';
-
-      final response = await _dio.get(apiUrl);
-
-      if (response.statusCode == 200) {
-        final data = response.data;
-        if (data != null && data['data'] != null && data['data'].isNotEmpty) {
-          final videoUrl = data['data'][0]['video_url'];
-          if (videoUrl != null && videoUrl.isNotEmpty) {
-            return videoUrl;
-          }
-        }
-      }
-      return null;
-    } catch (e) {
-      _logger.severe('Failed to get audio URL with Mir6 API: $e');
-      return null;
-    }
-  }
-
-  // 使用备用API获取音频URL
-  Future<String> getAudioUrlWithBackupApi(String videoId) async {
-    try {
-      if (videoId.isEmpty) {
-        return '';
-      }
-
-      // 确保有正确的BV号格式
-      String standardizedId = videoId;
-      if (!videoId.startsWith('BV') && !videoId.startsWith('av')) {
-        standardizedId = 'BV$videoId';
-      }
-
-      // 构造视频URL
-      final videoUrl = Uri.encodeFull(
-        'https://www.bilibili.com/video/$standardizedId',
-      );
-
-      // 使用另一个备用解析API
-      final apiUrl = 'https://jiexi.t7g.cn/?url=$videoUrl';
-      debugPrint('使用备用解析API: $apiUrl');
-
-      return apiUrl;
-    } catch (e) {
-      debugPrint('构建备用API链接失败: $e');
-      return '';
     }
   }
 
@@ -622,51 +655,6 @@ class BilibiliService extends ChangeNotifier {
     } catch (e) {
       debugPrint('丰富视频信息失败: $e');
       return null;
-    }
-  }
-
-  // 获取热门视频
-  Future<List<VideoItem>> getPopularVideos({
-    int page = 1,
-    int pageSize = 20,
-  }) async {
-    try {
-      // 构建请求参数
-      final Map<String, dynamic> params = {'ps': pageSize, 'pn': page};
-
-      // 发送请求
-      final response = await _dio.get(
-        '$_apiBaseUrl/x/web-interface/popular',
-        queryParameters: params,
-      );
-
-      // 检查响应
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> data = response.data;
-
-        // 检查API返回的状态码
-        if (data['code'] == 0 && data['data'] != null) {
-          final List<dynamic> items = data['data']['list'] ?? [];
-
-          // 解析视频项
-          final List<VideoItem> videos = [];
-          for (var item in items) {
-            try {
-              final video = VideoItem.fromJson(item);
-              videos.add(video);
-            } catch (e) {
-              debugPrint('解析热门视频失败: $e');
-            }
-          }
-
-          return videos;
-        }
-      }
-
-      return [];
-    } catch (e) {
-      debugPrint('获取热门视频失败: $e');
-      return [];
     }
   }
 

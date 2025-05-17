@@ -4,20 +4,36 @@ import '../../../core/services/bilibili_service.dart';
 import '../../../core/services/audio_player_service.dart';
 import '../../player/models/audio_item.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
+import '../../../core/models/video_item.dart';
+import 'package:just_audio/just_audio.dart';
+import '../../../core/services/audio_player_manager.dart';
+import '../../../core/services/lyrics_service.dart' as lyrics_service;
+import '../../../core/services/settings_service.dart';
 
 class PlayerPage extends StatefulWidget {
-  final String bvid;
+  final AudioItem? audioItem;
+  final String? bvid;
   final String? cid;
   final String? title;
   final String? uploader;
 
   const PlayerPage({
     Key? key,
-    required this.bvid,
+    this.audioItem,
+    this.bvid,
     this.cid,
     this.title,
     this.uploader,
   }) : super(key: key);
+
+  // 工厂构造函数，支持从 VideoItem 创建
+  factory PlayerPage.fromVideo(VideoItem video) {
+    return PlayerPage(
+      bvid: video.bvid,
+      title: video.title,
+      uploader: video.uploader,
+    );
+  }
 
   @override
   State<PlayerPage> createState() => _PlayerPageState();
@@ -26,6 +42,8 @@ class PlayerPage extends StatefulWidget {
 class _PlayerPageState extends State<PlayerPage> {
   late final BilibiliService _bilibiliService;
   late final AudioPlayerService _audioPlayerService;
+  late final AudioPlayerManager _audioPlayerManager;
+  late final lyrics_service.LyricsService _lyricsService;
   bool _isLoading = false;
   String _statusMessage = '';
   String? _errorMessage;
@@ -34,13 +52,24 @@ class _PlayerPageState extends State<PlayerPage> {
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   String? _audioUrl;
+  late String _bvid;
+  late String? _title;
+  late String? _uploader;
+  String? _lyrics;
+  Duration _lyricsOffset = Duration.zero;
+  bool _isLyricsLoading = false;
+  lyrics_service.LyricSource _currentLyricSource =
+      lyrics_service.LyricSource.netease;
 
   @override
   void initState() {
     super.initState();
     _audioPlayerService = AudioPlayerService();
+    _audioPlayerManager = AudioPlayerManager(SettingsService());
+    _lyricsService = lyrics_service.LyricsService();
 
     _initServices();
+    _fetchLyrics();
   }
 
   Future<void> _initServices() async {
@@ -55,7 +84,7 @@ class _PlayerPageState extends State<PlayerPage> {
 
       // Get SharedPreferences and initialize BilibiliService
       final prefs = await SharedPreferences.getInstance();
-      _bilibiliService = BilibiliService(prefs);
+      _bilibiliService = BilibiliService(prefs: prefs);
 
       _audioPlayerService.audioPlayer.positionStream.listen((position) {
         if (mounted) {
@@ -105,28 +134,27 @@ class _PlayerPageState extends State<PlayerPage> {
     });
 
     try {
-      final bvid = widget.bvid;
-
       // If we have a CID, use it directly
       if (widget.cid != null) {
         setState(() {
           _statusMessage = '获取音频URL...';
         });
 
-        _audioUrl = await _bilibiliService.getAudioUrl(bvid, cid: widget.cid);
+        _audioUrl =
+            await _bilibiliService.getAudioUrl(widget.bvid!, cid: widget.cid);
       } else {
         setState(() {
           _statusMessage = '获取视频信息...';
         });
 
-        final videoInfo = await _bilibiliService.getVideoInfo(bvid);
+        final videoInfo = await _bilibiliService.getVideoInfo(widget.bvid!);
         if (videoInfo != null && videoInfo.cid != null) {
           setState(() {
             _statusMessage = '获取音频URL...';
           });
 
-          _audioUrl =
-              await _bilibiliService.getAudioUrl(bvid, cid: videoInfo.cid);
+          _audioUrl = await _bilibiliService.getAudioUrl(widget.bvid!,
+              cid: videoInfo.cid);
         }
       }
 
@@ -144,7 +172,7 @@ class _PlayerPageState extends State<PlayerPage> {
 
       // Set up headers for Bilibili
       final headers = {
-        'Referer': 'https://www.bilibili.com/video/$bvid',
+        'Referer': 'https://www.bilibili.com/video/${widget.bvid}',
         'User-Agent':
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Accept-Encoding': 'identity;q=1, *;q=0',
@@ -169,6 +197,43 @@ class _PlayerPageState extends State<PlayerPage> {
     }
   }
 
+  Future<void> _fetchLyrics() async {
+    if (widget.title == null || widget.uploader == null) return;
+
+    try {
+      setState(() {
+        _isLyricsLoading = true;
+      });
+
+      // 尝试从不同来源获取歌词
+      _lyrics = await _lyricsService.fetchLyrics(
+        title: widget.title!,
+        artist: widget.uploader!,
+        source: _currentLyricSource,
+      );
+    } catch (e) {
+      print('获取歌词失败: $e');
+    } finally {
+      setState(() {
+        _isLyricsLoading = false;
+      });
+    }
+  }
+
+  void _adjustLyricsSync(Duration offset) {
+    setState(() {
+      _lyricsOffset = offset;
+      _lyrics = _lyricsService.synchronizeLyrics(_lyrics, offset);
+    });
+  }
+
+  void _changeLyricSource(lyrics_service.LyricSource source) {
+    setState(() {
+      _currentLyricSource = source;
+    });
+    _fetchLyrics();
+  }
+
   String _formatDuration(Duration duration) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
     final minutes = twoDigits(duration.inMinutes.remainder(60));
@@ -181,6 +246,26 @@ class _PlayerPageState extends State<PlayerPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title ?? '播放器'),
+        actions: [
+          PopupMenuButton<lyrics_service.LyricSource>(
+            icon: const Icon(Icons.lyrics),
+            onSelected: _changeLyricSource,
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: lyrics_service.LyricSource.netease,
+                child: Text('网易云歌词'),
+              ),
+              const PopupMenuItem(
+                value: lyrics_service.LyricSource.bilibili,
+                child: Text('B站字幕'),
+              ),
+              const PopupMenuItem(
+                value: lyrics_service.LyricSource.manual,
+                child: Text('手动输入'),
+              ),
+            ],
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -329,6 +414,33 @@ class _PlayerPageState extends State<PlayerPage> {
               ],
             ),
           ),
+
+        // 歌词显示区域
+        _isLyricsLoading
+            ? const CircularProgressIndicator()
+            : _lyrics != null
+                ? Expanded(
+                    child: SingleChildScrollView(
+                      child: Text(
+                        _lyrics!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 16),
+                      ),
+                    ),
+                  )
+                : const Text('未找到歌词'),
+
+        // 歌词同步调整滑块
+        Slider(
+          value: _lyricsOffset.inMilliseconds.toDouble(),
+          min: -5000,
+          max: 5000,
+          divisions: 100,
+          label: '歌词同步: ${_lyricsOffset.inMilliseconds}ms',
+          onChanged: (value) {
+            _adjustLyricsSync(Duration(milliseconds: value.toInt()));
+          },
+        ),
       ],
     );
   }
@@ -337,6 +449,8 @@ class _PlayerPageState extends State<PlayerPage> {
   void dispose() {
     // We don't dispose the audio player service here since it's a singleton
     // and might be used by other parts of the app
+    _audioPlayerService.dispose();
+    _audioPlayerManager.dispose();
     super.dispose();
   }
 }

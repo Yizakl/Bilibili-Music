@@ -245,6 +245,7 @@ class VideoItem {
   player_models.AudioItem toAudioItem({String? audioUrl}) {
     return player_models.AudioItem(
       id: id,
+      bvid: bvid,
       title: title,
       uploader: uploader,
       thumbnail: thumbnail ?? '',

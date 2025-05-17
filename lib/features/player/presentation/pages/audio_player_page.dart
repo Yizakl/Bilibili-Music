@@ -134,6 +134,7 @@ class _AudioPlayerPageState extends State<AudioPlayerPage> {
       // 创建音频项
       final audioItem = AudioItem(
         id: _videoItem!.id,
+        bvid: _videoItem!.bvid,
         title: _videoItem!.title,
         uploader: _videoItem!.uploader,
         thumbnail: _videoItem!.thumbnail ?? '',

@@ -20,6 +20,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:typed_data';
+import 'features/home/presentation/pages/home_page.dart';
+import 'features/home/presentation/pages/pc_home_page.dart';
+import 'core/theme/app_theme.dart';
+import 'package:go_router/go_router.dart';
+import 'features/settings/presentation/pages/settings_page.dart';
+import 'features/player/pages/player_page.dart';
+import 'core/models/video_item.dart';
+import 'features/player/models/audio_item.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -42,19 +50,11 @@ Future<void> main() async {
     androidWillPauseWhenDucked: true,
   ));
 
-  // 初始化后台播放服务
+  // 初始化 just_audio_background
   await JustAudioBackground.init(
-    androidNotificationChannelId: 'com.bilibili.music.channel.audio',
-    androidNotificationChannelName: 'Bilibili Music',
+    androidNotificationChannelId: 'com.ryanheise.bg_demo.channel.audio',
+    androidNotificationChannelName: 'Bilibili Music Playback',
     androidNotificationOngoing: true,
-    androidStopForegroundOnPause: true,
-    androidShowNotificationBadge: true,
-    fastForwardInterval: const Duration(seconds: 10),
-    rewindInterval: const Duration(seconds: 10),
-    androidNotificationIcon: 'mipmap/ic_launcher',
-    notificationColor: Colors.blue,
-    androidNotificationClickStartsActivity: true,
-    androidNotificationChannelDescription: 'Bilibili Music 音频播放通知',
   );
 
   // 获取本地存储实例
@@ -63,8 +63,8 @@ Future<void> main() async {
   // 初始化服务
   final bilibiliApi = BilibiliApi(prefs);
   final authService = AuthService(prefs, bilibiliApi);
-  final bilibiliService = BilibiliService(prefs);
-  final settingsService = SettingsService(prefs);
+  final bilibiliService = BilibiliService(prefs: prefs);
+  final settingsService = SettingsService();
   final audioPlayerManager = AudioPlayerManager(settingsService);
   final favoritesService = FavoritesService(prefs);
 
@@ -118,7 +118,7 @@ Future<void> main() async {
         ChangeNotifierProvider(create: (_) => settingsService),
         Provider<BilibiliEnhancedService>.value(value: bilibiliEnhancedService),
       ],
-      child: const BilibiliMusicApp(),
+      child: MyApp(settingsService: settingsService),
     ),
   );
   configLoading();
@@ -227,14 +227,72 @@ void configLoading() {
   EasyLoading.instance
     ..displayDuration = const Duration(milliseconds: 2000)
     ..indicatorType = EasyLoadingIndicatorType.fadingCircle
-    ..loadingStyle = EasyLoadingStyle.dark
+    ..loadingStyle = EasyLoadingStyle.light
     ..indicatorSize = 45.0
     ..radius = 10.0
-    ..progressColor = Colors.yellow
-    ..backgroundColor = Colors.green
-    ..indicatorColor = Colors.yellow
-    ..textColor = Colors.yellow
-    ..maskColor = Colors.blue.withOpacity(0.5)
+    ..progressColor = Colors.blue
+    ..backgroundColor = Colors.white
+    ..indicatorColor = Colors.blue
+    ..textColor = Colors.black
+    ..maskColor = Colors.black.withOpacity(0.1)
     ..userInteractions = true
     ..dismissOnTap = false;
+}
+
+class MyApp extends StatelessWidget {
+  final SettingsService settingsService;
+
+  const MyApp({Key? key, required this.settingsService}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final router = GoRouter(
+      initialLocation: '/',
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (context, state) =>
+              settingsService.isPCMode ? const PCHomePage() : const HomePage(),
+        ),
+        GoRoute(
+          path: '/settings',
+          builder: (context, state) => const SettingsPage(),
+        ),
+        GoRoute(
+          path: '/player',
+          builder: (context, state) {
+            // 从路由状态中获取 VideoItem 或 AudioItem
+            final item = state.extra;
+            if (item is VideoItem) {
+              return PlayerPage.fromVideo(item);
+            } else if (item is AudioItem) {
+              return PlayerPage(
+                audioItem: item,
+                bvid: item.bvid,
+                title: item.title,
+                uploader: item.uploader,
+              );
+            }
+            // 如果没有传递有效的 item，返回首页
+            return settingsService.isPCMode
+                ? const PCHomePage()
+                : const HomePage();
+          },
+        ),
+      ],
+    );
+
+    return Consumer<SettingsService>(
+      builder: (context, settingsService, child) {
+        return MaterialApp.router(
+          title: 'Bilibili Music',
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
+          themeMode: settingsService.themeMode,
+          routerConfig: router,
+          builder: EasyLoading.init(),
+        );
+      },
+    );
+  }
 }

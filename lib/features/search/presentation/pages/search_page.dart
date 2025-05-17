@@ -160,9 +160,9 @@ class _SearchPageState extends State<SearchPage>
     try {
       setState(() => _isLoading = true);
 
-      // 使用mir6 API获取音频URL
-      final audioUrl = await bilibiliService.getAudioUrlWithMir6Api(video.id);
-      if (audioUrl == null || audioUrl.isEmpty) {
+      // 使用新的音频URL获取方法
+      final audioUrl = await bilibiliService.getAudioUrl(video.bvid);
+      if (audioUrl.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('无法获取音频URL')),
@@ -174,6 +174,7 @@ class _SearchPageState extends State<SearchPage>
       // 创建AudioItem
       final audioItem = AudioItem(
         id: video.id,
+        bvid: video.bvid,
         title: video.title,
         uploader: video.uploader,
         thumbnail: video.fixedThumbnail,

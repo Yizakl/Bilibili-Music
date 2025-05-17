@@ -197,27 +197,22 @@ class AudioPlayerManager extends ChangeNotifier {
       // 先停止当前播放
       await _audioPlayer.stop();
 
-      // 重置状态
-      _position = Duration.zero;
-      positionNotifier.value = _position;
-
-      // 设置音频源
-      final audioSource = AudioSource.uri(
-        Uri.parse(item.audioUrl),
-        tag: MediaItem(
-          id: item.id,
-          title: item.title,
-          artist: item.uploader,
-          artUri: Uri.parse(item.thumbnail),
-          displayTitle: item.title,
-          displaySubtitle: item.uploader,
-          album: '哔哩哔哩音乐',
-        ),
+      // 创建 MediaItem
+      final mediaItem = MediaItem(
+        id: item.id,
+        title: item.title,
+        artist: item.uploader,
+        artUri: Uri.parse(item.thumbnail),
+        displayTitle: item.title,
+        displaySubtitle: item.uploader,
+        album: '哔哩哔哩音乐',
       );
 
-      await _audioPlayer.setAudioSource(audioSource);
-      await _audioPlayer.setVolume(_volume);
-      await _audioPlayer.setSpeed(_speed);
+      // 设置音频源，使用 MediaItem 作为标签
+      await _audioPlayer.setAudioSource(AudioSource.uri(
+        Uri.parse(item.audioUrl),
+        tag: mediaItem,
+      ));
 
       // 开始播放
       await _audioPlayer.play();
@@ -225,8 +220,8 @@ class AudioPlayerManager extends ChangeNotifier {
       isPlayingNotifier.value = true;
       statusNotifier.value = '正在播放';
 
-      // 更新播放列表状态
-      if (!playlist.contains(item)) {
+      // 更新播放列表
+      if (!playlist.any((audio) => audio.id == item.id)) {
         playlistNotifier.value = [...playlist, item];
         _currentIndex = playlist.length - 1;
       } else {
@@ -238,8 +233,6 @@ class AudioPlayerManager extends ChangeNotifier {
       isLoadingNotifier.value = false;
       _isPlaying = false;
       isPlayingNotifier.value = false;
-    } finally {
-      _preventAutoStop = false;
     }
   }
 

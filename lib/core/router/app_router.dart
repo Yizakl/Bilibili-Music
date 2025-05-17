@@ -44,6 +44,7 @@ class AppRouter {
               if (homeAudioItem != null) {
                 playerAudioItem = player_models.AudioItem(
                   id: homeAudioItem.id,
+                  bvid: homeAudioItem.bvid ?? homeAudioItem.id,
                   title: homeAudioItem.title,
                   uploader: homeAudioItem.uploader,
                   thumbnail: homeAudioItem.thumbnail,

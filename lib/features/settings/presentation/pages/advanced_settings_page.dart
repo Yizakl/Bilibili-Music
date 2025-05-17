@@ -28,7 +28,7 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
           RadioListTile<AudioApiSource>(
             title: const Text('第三方解析API'),
             subtitle: const Text('使用第三方服务解析B站音频'),
-            value: AudioApiSource.thirdParty,
+            value: AudioApiSource.mir6,
             groupValue: advancedSettings.audioApiSource,
             onChanged: (value) {
               if (value != null) {
@@ -64,16 +64,16 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 Text(
-                  '选择音频播放方式。\n"仅音频"会尝试直接播放音频流。\n"视频模式 (仅音频)" 会加载视频但只播放其音轨 (可能更兼容某些链接)。',
+                  '选择音频播放方式。\n"顺序播放"按顺序播放列表。\n"循环"会重复播放当前列表。\n"随机"会随机播放列表中的歌曲。',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
             ),
           ),
           RadioListTile<PlaybackMode>(
-            title: const Text('仅音频'),
-            subtitle: const Text('直接播放音频流'),
-            value: PlaybackMode.audioOnly,
+            title: const Text('顺序播放'),
+            subtitle: const Text('按顺序播放列表'),
+            value: PlaybackMode.sequential,
             groupValue: advancedSettings.playbackMode,
             onChanged: (value) {
               if (value != null) {
@@ -82,9 +82,20 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
             },
           ),
           RadioListTile<PlaybackMode>(
-            title: const Text('视频模式 (仅音频)'),
-            subtitle: const Text('加载视频，但仅播放音频轨道'),
-            value: PlaybackMode.videoAsAudio,
+            title: const Text('循环播放'),
+            subtitle: const Text('重复播放当前列表'),
+            value: PlaybackMode.loop,
+            groupValue: advancedSettings.playbackMode,
+            onChanged: (value) {
+              if (value != null) {
+                settingsService.setPlaybackMode(value);
+              }
+            },
+          ),
+          RadioListTile<PlaybackMode>(
+            title: const Text('随机播放'),
+            subtitle: const Text('随机播放列表中的歌曲'),
+            value: PlaybackMode.random,
             groupValue: advancedSettings.playbackMode,
             onChanged: (value) {
               if (value != null) {
@@ -129,6 +140,59 @@ class _AdvancedSettingsPageState extends State<AdvancedSettingsPage> {
                 downloadHighQualityAudio: value,
               );
               settingsService.updateAdvancedSettings(newSettings);
+            },
+          ),
+
+          // 播放器设置
+          _buildSectionHeader('播放器设置'),
+
+          Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '播放器类型',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                Text(
+                  '选择视频和音频的播放方式。\n"原生播放器"使用应用内置播放器。\n"外部播放器"将调用系统默认播放器。',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          RadioListTile<PlayerType>(
+            title: const Text('原生播放器'),
+            subtitle: const Text('使用应用内置播放器'),
+            value: PlayerType.native,
+            groupValue: advancedSettings.playerType,
+            onChanged: (value) {
+              if (value != null) {
+                settingsService.setPlayerType(value);
+              }
+            },
+          ),
+          RadioListTile<PlayerType>(
+            title: const Text('外部播放器'),
+            subtitle: const Text('调用系统默认播放器'),
+            value: PlayerType.externalPlayer,
+            groupValue: advancedSettings.playerType,
+            onChanged: (value) {
+              if (value != null) {
+                settingsService.setPlayerType(value);
+              }
+            },
+          ),
+
+          // 交叉淡入淡出设置
+          SwitchListTile(
+            title: const Text('交叉淡入淡出'),
+            subtitle: const Text('在歌曲之间平滑过渡'),
+            value: advancedSettings.enableCrossfade,
+            onChanged: (value) {
+              settingsService.setCrossfade(value);
             },
           ),
 

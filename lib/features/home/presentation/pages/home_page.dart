@@ -513,6 +513,7 @@ class _HomeTabViewState extends State<HomeTabView> {
     // 创建一个模拟的音频项目
     final demoAudio = player_models.AudioItem(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
+      bvid: DateTime.now().millisecondsSinceEpoch.toString(),
       title: title,
       uploader: uploader,
       thumbnail: 'https://via.placeholder.com/60',
